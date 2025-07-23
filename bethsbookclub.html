@@ -1,0 +1,2886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beth's Book Club</title>
+    <!-- Tailwind CSS CDN for sleek styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the Inter font and overall look */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* Light gray background for matte, earthy feel */
+            color: #334155; /* Darker text for contrast */
+            line-height: 1.6;
+        }
+        .book-card {
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            opacity: 0; /* Start hidden for fade-in animation */
+            transform: translateY(20px); /* Start slightly below for slide-up effect */
+            animation: fadeInSlideUp 0.5s ease-out forwards; /* Apply animation */
+        }
+        .book-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+        /* Keyframe animation for fade-in and slide-up */
+        @keyframes fadeInSlideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Ensure images maintain aspect ratio and fit within their containers */
+        .book-image {
+            width: 100%;
+            height: 250px; /* Fixed height for consistency */
+            object-fit: cover; /* Cover the area, cropping if necessary */
+            border-radius: 0.5rem; /* Rounded corners for images */
+        }
+
+        /* Styles for smaller bookshelf cards */
+        .bookshelf-card-small {
+            width: 160px; /* Fixed smaller width for bookshelf cards */
+            flex-shrink: 0; /* Prevent shrinking in flex containers */
+            margin: 0.5rem; /* Small margin around cards */
+            text-align: center;
+        }
+
+        .bookshelf-card-small .book-image {
+            height: 180px; /* Smaller height for images in bookshelf */
+        }
+
+        .bookshelf-card-small .p-6 {
+            padding: 0.75rem; /* Reduced padding for smaller cards */
+        }
+
+        .bookshelf-card-small .text-xl {
+            font-size: 1rem; /* Smaller title font size */
+        }
+
+        .bookshelf-card-small .text-sm {
+            font-size: 0.75rem; /* Smaller author/year font size */
+        }
+
+        .bookshelf-card-small .book-description {
+            display: -webkit-box;
+            -webkit-line-clamp: 3; /* Limit description to 3 lines for smaller cards */
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-size: 0.8rem; /* Smaller description font size */
+        }
+
+        .bookshelf-card-small .star-rating svg {
+            width: 1rem; /* Smaller stars for bookshelf */
+            height: 1rem;
+        }
+
+
+        /* Responsive adjustments for description text (main view) */
+        .book-description {
+            display: -webkit-box;
+            -webkit-line-clamp: 4; /* Limit to 4 lines */
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        @media (min-width: 768px) {
+            .book-description {
+                -webkit-line-clamp: 6; /* More lines on larger screens */
+            }
+        }
+        /* Remove underline from links within book cards */
+        .book-link {
+            text-decoration: none;
+            color: inherit; /* Inherit text color from parent */
+            display: flex; /* Make the link fill its container */
+            flex-direction: column; /* Stack content vertically */
+            height: 100%; /* Ensure the link takes full height of the card */
+        }
+        /* Star rating styles */
+        .star-rating {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            justify-content: center; /* Center stars in small cards */
+        }
+        .star-rating svg {
+            width: 1.25rem; /* Size of the star icon */
+            height: 1.25rem;
+            fill: #facc15; /* Yellow color for filled stars */
+            stroke: #facc15; /* Stroke color for consistency */
+            margin-right: 0.125rem; /* Small space between stars */
+        }
+        .star-rating .empty-star {
+            fill: #d1d5db; /* Light gray for empty stars */
+            stroke: #d1d5db;
+        }
+
+        /* Button styling */
+        .action-button {
+            background-color: #059669; /* Emerald 600 - Green */
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            text-align: center;
+            transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out;
+            cursor: pointer;
+            border: none; /* Remove default button border */
+            width: fit-content; /* Adjust width to content */
+            margin-top: auto; /* Push button to the bottom of the card */
+        }
+        .action-button:hover {
+            background-color: #047857; /* Emerald 700 - Darker Green on hover */
+            transform: translateY(-1px);
+        }
+        .action-button:active {
+            transform: translateY(0);
+        }
+
+        /* Specific button colors */
+        .action-button.recommend-btn {
+            background-color: #e11d48; /* Rose 600 - Pink */
+        }
+        .action-button.recommend-btn:hover {
+            background-color: #be123c; /* Rose 700 - Darker Pink on hover */
+        }
+        .action-button.insight-btn {
+            background-color: #d97706; /* Amber 600 - Yellow */
+        }
+        .action-button.insight-btn:hover {
+            background-color: #b45309; /* Amber 700 - Darker Yellow on hover */
+        }
+        .action-button.pass-btn { /* New style for pass button */
+            background-color: #6b7280; /* Gray 500 */
+        }
+        .action-button.pass-btn:hover {
+            background-color: #4b5563; /* Gray 600 */
+        }
+        .action-button.red-flag-btn { /* New style for red flag button */
+            background-color: #dc2626; /* Red 600 */
+        }
+        .action-button.red-flag-btn:hover {
+            background-color: #b91c1c; /* Red 700 */
+        }
+        .nav-button {
+            background-color: transparent;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+            border: 1px solid transparent;
+        }
+        .nav-button:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        .nav-button.active {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .remove-admin-button {
+            background-color: #dc2626; /* Red-600 */
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            text-align: center;
+            transition: background-color 0.2s ease-in-out;
+            cursor: pointer;
+            border: none;
+            width: 100%; /* Full width within its container */
+            margin-top: 1rem; /* Space above */
+        }
+
+        .remove-admin-button:hover {
+            background-color: #b91c1c; /* Red-700 */
+        }
+
+        /* Review buttons specific styling */
+        .review-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            justify-content: center; /* Center the buttons */
+        }
+        .review-button {
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid #cbd5e1; /* Light gray border */
+            background-color: #f8fafc; /* Light background */
+            color: #475569; /* Slate 700 */
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+        }
+        .review-button:hover {
+            background-color: #e2e8f0; /* Lighter on hover */
+        }
+        .review-button.selected-mid {
+            background-color: #fca5a5; /* Red-300 */
+            border-color: #ef4444; /* Red-500 */
+            color: #7f1d1d; /* Red-900 */
+        }
+        .review-button.selected-like {
+            background-color: #a7f3d0; /* Green-200 */
+            border-color: #10b981; /* Green-500 */
+            color: #064e3b; /* Green-900 */
+        }
+        .review-button.selected-love {
+            background-color: #bfdbfe; /* Blue-200 */
+            border-color: #3b82f6; /* Blue-500 */
+            color: #1e3a8a; /* Blue-900 */
+        }
+
+        /* Styles for review buttons inside small bookshelf cards */
+        .bookshelf-card-small .review-buttons {
+            flex-wrap: wrap; /* Allow buttons to wrap */
+            gap: 0.25rem; /* Smaller gap */
+            margin-top: 0.5rem; /* Reduced margin */
+        }
+        .bookshelf-card-small .review-button {
+            padding: 0.3rem 0.6rem; /* Smaller padding */
+            font-size: 0.7rem; /* Smaller font size */
+        }
+
+
+        /* Message box for pick confirmation and LLM insights */
+        .message-box {
+            position: fixed;
+            top: 50% ;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #fff;
+            padding: 1.5rem 2rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            display: none; /* Hidden by default */
+            text-align: center;
+            font-size: 1.125rem;
+            font-weight: 500;
+            color: #1f2937;
+            max-width: 90%; /* Ensure it's responsive */
+            word-wrap: break-word; /* Prevent overflow for long text */
+        }
+        .message-box.llm-insight {
+            max-width: 600px; /* Wider for LLM insights */
+            text-align: left;
+            font-size: 1rem;
+        }
+
+
+        /* Loader styling */
+        .loader {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #059669; /* Emerald 600 - Green */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            display: none; /* Hidden by default */
+            margin: 2rem auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Source tag styling */
+        .source-tag {
+            display: inline-block;
+            background-color: #e0f2f7; /* Light blue */
+            color: #083344; /* Dark blue text */
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-top: 0.5rem;
+        }
+
+        /* Admin Alert specific styling */
+        .admin-alert-container {
+            margin-top: 2rem;
+            padding: 1rem;
+            background-color: #fff;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .admin-alert-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background-color: #fef3c7; /* Light yellow for alerts */
+            border-left: 4px solid #f59e0b; /* Amber border */
+            border-radius: 0.25rem;
+            font-size: 0.9rem;
+            color: #78350f; /* Darker amber text */
+        }
+        .admin-alert-item:last-child {
+            margin-bottom: 0;
+        }
+        .admin-alert-item .dismiss-button {
+            background-color: #f59e0b;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.25rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .admin-alert-item .dismiss-button:hover {
+            background-color: #d97706;
+        }
+
+        /* New styles for admin pending recommendations */
+        .admin-pending-recs-container {
+            margin-top: 2rem;
+            padding: 1rem;
+            background-color: #fff;
+            border-radius: 0.5rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .admin-pending-rec-item {
+            display: flex;
+            flex-direction: column;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background-color: #e0f2fe; /* Light blue for pending */
+            border-left: 4px solid #3b82f6; /* Blue border */
+            border-radius: 0.25rem;
+            font-size: 0.9rem;
+            color: #1e40af; /* Darker blue text */
+        }
+        .admin-pending-rec-item .book-info {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .admin-pending-rec-item .approve-button {
+            background-color: #3b82f6;
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 0.25rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            align-self: flex-end; /* Align button to the right */
+        }
+        .admin-pending-rec-item .approve-button:hover {
+            background-color: #2563eb;
+        }
+    </style>
+</head>
+<body class="antialiased">
+    <div class="min-h-screen flex flex-col">
+        <!-- Header Section -->
+        <header class="bg-gradient-to-r from-emerald-800 to-gray-900 text-white shadow-lg py-6 px-4 sm:px-6 lg:px-8">
+            <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center">
+                <!-- Click this title to toggle admin search panel -->
+                <h1 class="text-4xl font-extrabold tracking-tight mb-2 sm:mb-0 cursor-pointer flex items-center gap-2" onclick="toggleAdminSearchPanel()">
+                    Beth's Book Club
+                </h1>
+                <p class="text-xl opacity-90">Curated reads for you, my love.</p>
+            </div>
+            <nav class="max-w-7xl mx-auto mt-4 flex justify-center space-x-4">
+                <button id="nav-recommendations" class="nav-button active" onclick="showView('recommendations-view')">Recommended Reads</button>
+                <button id="nav-bookshelf" class="nav-button" onclick="showView('bookshelf-view')">My Bookshelf</button>
+                <!-- New tab for Beth's deleted books -->
+                <button id="nav-beth-deleted-books" class="nav-button" onclick="showView('beth-deleted-books-view')">Deleted Books</button>
+                <!-- Admin-only tab for flagged books, initially hidden -->
+                <button id="nav-flagged-books" class="nav-button hidden" onclick="showView('flagged-books-view')">Flagged Books</button>
+            </nav>
+        </header>
+
+        <!-- Admin Search Section (Initially Hidden) -->
+        <section id="admin-search-panel" class="py-8 px-4 sm:px-6 lg:px-8 bg-gray-100 border-b border-gray-200 hidden">
+            <div class="max-w-7xl mx-auto">
+                <h2 class="text-2xl font-bold text-center mb-6 text-gray-800">Admin: Find & Add Books</h2>
+
+                <!-- Admin Alerts Container -->
+                <div id="admin-alerts-container" class="admin-alert-container hidden">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4">Admin Alerts</h3>
+                    <div id="admin-alerts-list">
+                        <!-- Admin alerts will be displayed here -->
+                    </div>
+                    <p id="no-admin-alerts-message" class="text-center text-gray-600 mt-4 hidden">No new alerts.</p>
+                </div>
+
+                <!-- Admin Pending Recommendations Container -->
+                <div id="admin-pending-recs-container" class="admin-pending-recs-container hidden">
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4">Admin: Pending Recommendations</h3>
+                    <div id="admin-pending-recs-list">
+                        <!-- Pending recommendations will be displayed here -->
+                    </div>
+                    <p id="no-admin-pending-recs-message" class="text-center text-gray-600 mt-4 hidden">No pending recommendations.</p>
+                </div>
+
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
+                    <input type="text" id="search-input" placeholder="Search by title or author..."
+                           class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700">
+                    <button id="search-button" class="action-button px-6 py-3">Search Books</button>
+                    <button id="recommend-button" class="action-button recommend-btn px-6 py-3">Get Recommendations</button>
+                </div>
+
+                <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
+                    <input type="text" id="manual-add-url-input" placeholder="Paste Open Library Work URL (e.g., https://openlibrary.org/works/OL12345W)"
+                           class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700">
+                    <button id="manual-add-button" class="action-button px-6 py-3 bg-blue-600 hover:bg-blue-700">Add Manually</button>
+                </div>
+
+                <!-- New: Evaluate Book for Beth -->
+                <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
+                    <input type="text" id="evaluate-book-url-input" placeholder="Evaluate Book for Beth (Open Library Work URL)"
+                           class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700">
+                    <button id="evaluate-book-button" class="action-button px-6 py-3 bg-purple-600 hover:bg-purple-700">Evaluate Book</button>
+                </div>
+
+
+                <div id="search-results" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-8">
+                    <!-- Search results will be displayed here -->
+                </div>
+                <div id="search-loader" class="loader"></div>
+                <p id="search-message" class="text-center text-gray-600 mt-4 hidden"></p>
+            </div>
+        </section>
+
+        <!-- Main Content Area for Curated Books -->
+        <main id="recommendations-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8">
+            <div class="max-w-7xl mx-auto">
+                <h2 id="recommended-reads-heading" class="text-3xl font-bold text-center mb-10 text-gray-800">Recommended Reads (This Month)</h2>
+                <div id="book-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    <!-- Curated book cards will be dynamically inserted here by JavaScript -->
+                </div>
+                <p id="no-books-message" class="text-center text-gray-600 mt-4 hidden">No books recommended yet. New recommendations will be added soon!</p>
+                <!-- New button for Beth to request more recommendations -->
+                <div id="request-more-recs-container" class="mt-10 text-center hidden">
+                    <button id="request-more-recs-button" class="action-button px-8 py-4 text-lg bg-blue-500 hover:bg-blue-600">Ready for More Recommendations!</button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Beth's Bookshelf Section -->
+        <section id="bookshelf-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
+            <div class="max-w-7xl mx-auto">
+                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Beth's Bookshelf</h2>
+                <!-- Adjusted grid for smaller cards on bookshelf -->
+                <div id="bookshelf-list" class="flex flex-wrap justify-center gap-4">
+                    <!-- Books from the bookshelf will be dynamically inserted here -->
+                </div>
+                <p id="no-bookshelf-message" class="text-center text-gray-600 mt-4 hidden">No books on the bookshelf yet. Rate some books "Like" or "Love" to add them here!</p>
+            </div>
+        </section>
+
+        <!-- Beth's Deleted Books Section (Always visible) -->
+        <section id="beth-deleted-books-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
+            <div class="max-w-7xl mx-auto">
+                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Beth's Deleted Books</h2>
+                <div id="beth-deleted-books-list" class="flex flex-wrap justify-center gap-4">
+                    <!-- Beth's deleted books will be dynamically inserted here -->
+                </div>
+                <p id="no-beth-deleted-books-message" class="text-center text-gray-600 mt-4 hidden">No books have been deleted from your bookshelf yet.</p>
+            </div>
+        </section>
+
+        <!-- Admin Flagged Books Section (Initially Hidden) -->
+        <section id="flagged-books-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
+            <div class="max-w-7xl mx-auto">
+                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Admin: Flagged Books</h2>
+                <div id="flagged-books-list" class="flex flex-wrap justify-center gap-4">
+                    <!-- Flagged books (passed/red-flagged) will be dynamically inserted here -->
+                </div>
+                <p id="no-flagged-books-message" class="text-center text-gray-600 mt-4 hidden">No books have been flagged by the admin yet.</p>
+            </div>
+        </section>
+
+        <!-- Footer Section -->
+        <footer class="bg-gray-800 text-gray-300 py-8 px-4 sm:px-6 lg:px-8 mt-auto">
+            <div class="max-w-7xl mx-auto text-center">
+                <p>&copy; <span id="current-year"></span> Beth's Book Club. All rights reserved.</p>
+                <p class="text-sm mt-2">Designed with ❤️ for you.</p>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Message box for pick confirmation and other messages -->
+    <div id="message-box" class="message-box">
+        <p id="message-text"></p>
+        <button id="message-box-close" class="mt-4 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700">Close</button>
+    </div>
+
+    <script>
+        // Your email address where you want to receive notifications (currently unused, but kept for potential future use)
+        const YOUR_EMAIL_ADDRESS = 'mburkey337@gmail.com';
+
+        // Keywords for Beth's favorite genres for NYT Best Sellers (used in AI prompt and scoring)
+        const BETH_GENRE_KEYWORDS = ['true crime', 'murder mystery', 'thriller', 'mystery', 'crime'];
+
+        // Minimum publication year for recommendations (e.g., 2000 to exclude very old books)
+        const MIN_PUBLISH_YEAR = 2000;
+
+        // --- Local Storage Management ---
+        // Keys for storing data in the browser's local storage
+        const RECOMMENDED_BOOKS_KEY = 'bethsRecommendedBooks';
+        const BOOK_SHELF_BOOKS_KEY = 'bethsBookShelfBooks';
+        const FLAGGED_BOOKS_KEY = 'bethsFlaggedBooks'; // For admin-flagged (passed/red-flagged) books
+        const BETH_DELETED_BOOKS_KEY = 'bethsDeletedBooks'; // For Beth's personal deleted books from bookshelf
+        const BETH_NEGATIVE_FEEDBACK_KEY = 'bethsNegativeFeedback'; // Stores terms Beth dislikes
+        const ADMIN_ALERTS_KEY = 'bethsAdminAlerts'; // Stores alerts for the admin
+        const ADMIN_PENDING_RECS_KEY = 'bethsAdminPendingRecommendations'; // Stores AI-generated recommendations awaiting admin approval
+
+        /**
+         * Retrieves recommended books from local storage.
+         * @returns {Array<Object>} An array of book objects.
+         */
+        function getRecommendedBooks() {
+            try {
+                const storedBooks = localStorage.getItem(RECOMMENDED_BOOKS_KEY);
+                return storedBooks ? JSON.parse(storedBooks) : [];
+            } catch (e) {
+                console.error("Error parsing stored recommended books:", e);
+                return [];
+            }
+        }
+
+        /**
+         * Saves recommended books to local storage.
+         * @param {Array<Object>} books - An array of book objects to save.
+         */
+        function saveRecommendedBooks(books) {
+            try {
+                localStorage.setItem(RECOMMENDED_BOOKS_KEY, JSON.stringify(books));
+            } catch (e) {
+                console.error("Error saving recommended books to local storage:", e);
+            }
+        }
+
+        /**
+         * Retrieves books from Beth's bookshelf from local storage.
+         * @returns {Array<Object>} An array of book objects.
+         */
+        function getBookShelfBooks() {
+            try {
+                const storedBooks = localStorage.getItem(BOOK_SHELF_BOOKS_KEY);
+                return storedBooks ? JSON.parse(storedBooks) : [];
+            } catch (e) {
+                console.error("Error parsing stored bookshelf books:", e);
+                return [];
+            }
+        }
+
+        /**
+         * Saves books to Beth's bookshelf in local storage.
+         * @param {Array<Object>} books - An array of book objects to save.
+         */
+        function saveBookShelfBooks(books) {
+            try {
+                localStorage.setItem(BOOK_SHELF_BOOKS_KEY, JSON.stringify(books));
+            } catch (e) {
+                console.error("Error saving bookshelf books to local storage:", e);
+            }
+        }
+
+        /**
+         * Retrieves flagged books (admin-only) from local storage.
+         * @returns {Array<Object>} An array of book objects.
+         */
+        function getFlaggedBooks() {
+            try {
+                const storedBooks = localStorage.getItem(FLAGGED_BOOKS_KEY);
+                return storedBooks ? JSON.parse(storedBooks) : [];
+            } catch (e) {
+                console.error("Error parsing stored flagged books:", e);
+                return [];
+            }
+        }
+
+        /**
+         * Saves flagged books (admin-only) to local storage.
+         * @param {Array<Object>} books - An array of book objects to save.
+         */
+        function saveFlaggedBooks(books) {
+            try {
+                localStorage.setItem(FLAGGED_BOOKS_KEY, JSON.stringify(books));
+            } catch (e) {
+                console.error("Error saving flagged books to local storage:", e);
+            }
+        }
+
+        /**
+         * Retrieves books Beth has personally deleted from her bookshelf.
+         * @returns {Array<Object>} An array of book objects.
+         */
+        function getBethDeletedBooks() {
+            try {
+                const storedBooks = localStorage.getItem(BETH_DELETED_BOOKS_KEY);
+                return storedBooks ? JSON.parse(storedBooks) : [];
+            } catch (e) {
+                console.error("Error parsing stored Beth's deleted books:", e);
+                return [];
+            }
+        }
+
+        /**
+         * Saves books Beth has personally deleted from her bookshelf.
+         * @param {Array<Object>} books - An array of book objects to save.
+         */
+        function saveBethDeletedBooks(books) {
+            try {
+                localStorage.setItem(BETH_DELETED_BOOKS_KEY, JSON.stringify(books));
+            } catch (e) {
+                console.error("Error saving Beth's deleted books to local storage:", e);
+            }
+        }
+
+        /**
+         * Retrieves Beth's negative feedback terms from local storage.
+         * @returns {Array<string>} An array of strings (feedback terms).
+         */
+        function getNegativeFeedback() {
+            try {
+                const storedFeedback = localStorage.getItem(BETH_NEGATIVE_FEEDBACK_KEY);
+                return storedFeedback ? JSON.parse(storedFeedback) : [];
+            } catch (e) {
+                console.error("Error parsing stored negative feedback:", e);
+                return [];
+            }
+        }
+
+        /**
+         * Saves Beth's negative feedback terms to local storage.
+         * @param {Array<string>} feedback - An array of strings (feedback terms) to save.
+         */
+        function saveNegativeFeedback(feedback) {
+            try {
+                localStorage.setItem(BETH_NEGATIVE_FEEDBACK_KEY, JSON.stringify(feedback));
+            } catch (e) {
+                console.error("Error saving negative feedback to local storage:", e);
+            }
+        }
+
+        /**
+         * Retrieves admin alerts from local storage.
+         * @returns {Array<Object>} An array of alert objects.
+         */
+        function getAdminAlerts() {
+            try {
+                const storedAlerts = localStorage.getItem(ADMIN_ALERTS_KEY);
+                return storedAlerts ? JSON.parse(storedAlerts) : [];
+            } catch (e) {
+                console.error("Error parsing stored admin alerts:", e);
+                return [];
+            }
+        }
+
+        /**
+         * Saves admin alerts to local storage.
+         * @param {Array<Object>} alerts - An array of alert objects to save.
+         */
+        function saveAdminAlerts(alerts) {
+            try {
+                localStorage.setItem(ADMIN_ALERTS_KEY, JSON.stringify(alerts));
+            } catch (e) {
+                console.error("Error saving admin alerts to local storage:", e);
+            }
+        }
+
+        /**
+         * Retrieves AI-generated recommendations pending admin approval from local storage.
+         * @returns {Array<Object>} An array of book objects.
+         */
+        function getAdminPendingRecommendations() {
+            try {
+                const storedBooks = localStorage.getItem(ADMIN_PENDING_RECS_KEY);
+                return storedBooks ? JSON.parse(storedBooks) : [];
+            } catch (e) {
+                console.error("Error parsing stored admin pending recommendations:", e);
+                return [];
+            }
+        }
+
+        /**
+         * Saves AI-generated recommendations pending admin approval to local storage.
+         * @param {Array<Object>} books - An array of book objects to save.
+         */
+        function saveAdminPendingRecommendations(books) {
+            try {
+                localStorage.setItem(ADMIN_PENDING_RECS_KEY, JSON.stringify(books));
+            } catch (e) {
+                console.error("Error saving admin pending recommendations to local storage:", e);
+            }
+        }
+
+
+        // --- Open Library API Constants ---
+        const OPEN_LIBRARY_SEARCH_URL = 'https://openlibrary.org/search.json?q=';
+        const OPEN_LIBRARY_WORK_URL = 'https://openlibrary.org/works/';
+        const OPEN_LIBRARY_COVER_URL = 'https://covers.openlibrary.org/b/id/'; // Base URL for book covers
+
+        /**
+         * Escapes a string for safe use in HTML attributes (e.g., data-attributes).
+         * @param {string} str - The string to escape.
+         * @returns {string} The escaped string.
+         */
+        function escapeHtmlAttribute(str) {
+            if (typeof str !== 'string') {
+                str = String(str);
+            }
+            return str.replace(/&/g, '&amp;')
+                      .replace(/"/g, '&quot;')
+                      .replace(/'/g, '&#x27;') // Use &#x27; for single quotes in double-quoted attributes
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;');
+        }
+
+        /**
+         * Escapes a string for safe use in JavaScript strings within HTML onclick attributes.
+         * @param {string} str - The string to escape.
+         * @returns {string} The escaped string.
+         */
+        function escapeJsStringForHtmlAttribute(str) {
+            if (typeof str !== 'string') {
+                str = String(str);
+            }
+            // Escape backslashes first to prevent them from escaping other characters
+            return str.replace(/\\/g, '\\\\') // Escape backslashes
+                      .replace(/'/g, "\\'")   // Escape single quotes
+                      .replace(/`/g, "\\`")   // Escape backticks
+                      .replace(/\n/g, "\\n")   // Escape newlines
+                      .replace(/\r/g, "\\r")   // Escape carriage returns
+                      .replace(/\u2028/g, '\\u2028') // Escape line separator
+                      .replace(/\u2029/g, '\\u2029'); // Escape paragraph separator
+        }
+
+        /**
+         * Fetches full book details from Open Library's /works/{key}.json endpoint.
+         * Applies filters for cover image presence and minimum publication year.
+         * @param {string} workKey - The Open Library work key (e.g., "OL12345W").
+         * @returns {Promise<Object|null>} A promise that resolves to the book details object or null if not found/filtered.
+         */
+        async function fetchBookDetailsFromOpenLibrary(workKey) {
+            if (!workKey) return null;
+            try {
+                const response = await fetch(`${OPEN_LIBRARY_WORK_URL}${workKey}.json`);
+                if (!response.ok) {
+                    console.warn(`WARNING: Failed to fetch full details for work ${workKey}: ${response.status}`);
+                    return null;
+                }
+                const data = await response.json();
+                console.log(`DEBUG: Full details for ${workKey}:`, data);
+
+                // Filter out books without covers
+                if (!data.covers || data.covers.length === 0) {
+                    console.log(`DEBUG: Skipping "${data.title}" - no cover image available.`);
+                    return null;
+                }
+
+                // Filter out books older than MIN_PUBLISH_YEAR
+                if (data.first_publish_year && data.first_publish_year < MIN_PUBLISH_YEAR) {
+                    console.log(`DEBUG: Skipping "${data.title}" - published in ${data.first_publish_year}, which is older than ${MIN_PUBLISH_YEAR}.`);
+                    return null;
+                }
+
+                let description = '';
+                if (data.description) {
+                    if (typeof data.description === 'object' && data.description.value) {
+                        description = data.description.value;
+                    } else if (typeof data.description === 'string') {
+                        description = data.description;
+                    }
+                }
+
+                // Attempt to get author name from authors array, or use a placeholder
+                let authorName = 'Unknown Author';
+                if (data.authors && data.authors.length > 0 && data.authors[0].author && data.authors[0].author.key) {
+                    const authorKey = data.authors[0].author.key;
+                    const authorResponse = await fetch(`https://openlibrary.org${authorKey}.json`);
+                    if (authorResponse.ok) {
+                        const authorData = await authorResponse.json();
+                        authorName = authorData.name || 'Unknown Author';
+                    }
+                } else if (data.by_statement) { // Fallback to by_statement if authors array is missing
+                    authorName = data.by_statement;
+                }
+
+                // Construct image URL from covers array (already checked for existence above)
+                let imageUrl = `${OPEN_LIBRARY_COVER_URL}${data.covers[0]}-M.jpg`;
+
+                return {
+                    title: data.title || 'Unknown Title',
+                    author: authorName,
+                    description: description,
+                    imageUrl: imageUrl,
+                    goodreadsUrl: `https://openlibrary.org${data.key}`, // Use Open Library work URL
+                    rating: data.ratings_average || null,
+                    subjects: data.subjects || [],
+                    source: 'Open Library Work Details',
+                    first_publish_year: data.first_publish_year // Include publish year
+                };
+            } catch (error) {
+                console.error(`ERROR: Error fetching full details for work ${workKey}:`, error);
+                return null;
+            }
+        }
+
+        /**
+         * Searches for books on Open Library based on a query.
+         * Displays results in the admin search panel.
+         * @param {string} query - The search query (title or author).
+         */
+        async function searchBooks(query) {
+            const loader = document.getElementById('search-loader');
+            const message = document.getElementById('search-message');
+            const searchResultsContainer = document.getElementById('search-results');
+
+            searchResultsContainer.innerHTML = ''; // Clear previous results
+            message.classList.add('hidden');
+            loader.style.display = 'block'; // Show loader
+
+            // Prevent searching with URLs
+            if (query.startsWith('http://') || query.startsWith('https://')) {
+                loader.style.display = 'none';
+                message.textContent = 'Please enter only the book title or author, not a full URL.';
+                message.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${OPEN_LIBRARY_SEARCH_URL}${encodeURIComponent(query)}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                loader.style.display = 'none'; // Hide loader
+                console.log('DEBUG: Open Library Search Raw Data:', data);
+
+                let processedResults = [];
+                for (const bookData of data.docs) {
+                    // Basic data integrity check (key, author, cover)
+                    if (!bookData.key || !(bookData.author_name || bookData.author) || !bookData.cover_i) {
+                        console.log(`DEBUG: Skipping "${bookData.title}" - missing essential Open Library search data or cover.`);
+                        continue;
+                    }
+
+                    const workKeyMatch = bookData.key.match(/\/works\/(OL\d+W)/);
+                    let fullBookDetails = null;
+                    if (workKeyMatch && workKeyMatch[1]) {
+                        fullBookDetails = await fetchBookDetailsFromOpenLibrary(workKeyMatch[1]);
+                    }
+
+                    if (fullBookDetails) { // fullBookDetails will be null if it failed any internal filters (cover, year)
+                        processedResults.push(fullBookDetails);
+                    } else {
+                        console.log(`DEBUG: Skipping "${bookData.title}" - failed to fetch full details or full details were invalid/filtered.`);
+                    }
+                }
+
+                if (processedResults.length > 0) {
+                    displaySearchResults(processedResults);
+                } else {
+                    message.textContent = 'No books found. Try a different search term.';
+                    message.classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error('Error fetching books from Open Library:', error);
+                loader.style.display = 'none'; // Hide loader
+                message.textContent = 'Failed to load search results. Please try again later.';
+                message.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * Displays search results in the admin search panel.
+         * @param {Array<Object>} results - An array of book objects to display.
+         */
+        function displaySearchResults(results) {
+            const searchResultsContainer = document.getElementById('search-results');
+            searchResultsContainer.innerHTML = ''; // Clear previous results
+            console.log('DEBUG: Displaying Search Results:', results);
+
+            // Limit to top 10 results for cleaner display
+            const resultsArray = Array.isArray(results) ? results : Array.from(results);
+
+            resultsArray.slice(0, 10).forEach(bookData => {
+                const title = bookData.title || 'Unknown Title';
+                const author = bookData.author || 'Unknown Author';
+                const firstPublishYear = bookData.first_publish_year || 'N/A';
+                const bookUrl = bookData.goodreadsUrl || '#'; // Using goodreadsUrl to store Open Library work URL
+
+                const sourceTag = bookData.source ? `<span class="source-tag">${bookData.source}</span>` : '';
+
+                const imageUrl = bookData.imageUrl || 'https://placehold.co/400x600/CCCCCC/666666?text=No+Cover';
+                const descriptionText = bookData.description || 'No description available.';
+
+                // Stringify the entire bookData object and HTML-escape it for the data attribute
+                const bookDataJsonString = escapeHtmlAttribute(JSON.stringify(bookData));
+
+                const bookCard = document.createElement('div');
+                bookCard.className = 'book-card bg-white rounded-lg shadow-md overflow-hidden flex flex-col';
+
+                bookCard.innerHTML = `
+                    <a href="${escapeJsStringForHtmlAttribute(bookUrl)}" target="_blank" rel="noopener noreferrer" class="book-link">
+                        <img src="${escapeJsStringForHtmlAttribute(imageUrl)}" alt="${escapeJsStringForHtmlAttribute(title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover';">
+                        <div class="p-6 flex flex-col flex-grow">
+                            <h3 class="text-xl font-semibold text-gray-900 mb-2">${escapeJsStringForHtmlAttribute(title)}</h3>
+                            <p class="text-gray-600 text-sm mb-2">by ${escapeJsStringForHtmlAttribute(author)}</p>
+                            <p class="text-gray-600 text-xs mb-4">First Published: ${escapeJsStringForHtmlAttribute(firstPublishYear)}</p>
+                            <p class="text-gray-700 text-base book-description flex-grow">${escapeJsStringForHtmlAttribute(descriptionText)}</p>
+                            ${sourceTag}
+                        </div>
+                    </a>
+                    <div class="p-6 pt-0">
+                        <button class="action-button w-full" data-book-json="${bookDataJsonString}" onclick="addBookToCuratedList(event)">Add to Beth's Club</button>
+                    </div>
+                `;
+                searchResultsContainer.appendChild(bookCard);
+            });
+        }
+
+        // --- Global Data Stores ---
+        let recommendedBooks = []; // Books displayed in the main recommendations section
+        let bookShelfBooks = []; // Books on Beth's personal bookshelf
+        let flaggedBooks = []; // Books flagged by the admin (passed/red-flagged)
+        let bethDeletedBooks = []; // Books Beth personally deleted from her bookshelf
+        let adminAlerts = []; // Alerts for the admin
+        let adminPendingRecommendations = []; // AI-generated recommendations awaiting admin approval
+
+
+        /**
+         * Displays the current list of recommended books.
+         * Filters out books already picked, loved, liked, or passed by Beth.
+         */
+        function displayRecommendedBooks() {
+            recommendedBooks = getRecommendedBooks(); // Load from local storage
+            const bookListContainer = document.getElementById('book-list');
+            const noBooksMessage = document.getElementById('no-books-message');
+            const recommendedHeading = document.getElementById('recommended-reads-heading');
+            const adminPanel = document.getElementById('admin-search-panel');
+            const isAdminMode = !adminPanel.classList.contains('hidden'); // Check if admin panel is visible
+            const requestMoreRecsContainer = document.getElementById('request-more-recs-container');
+
+            const date = new Date();
+            const month = date.toLocaleString('default', { month: 'long' });
+            const year = date.getFullYear();
+            recommendedHeading.textContent = `Recommended Reads (${month} ${year})`;
+
+            bookListContainer.innerHTML = ''; // Clear existing content
+
+            // Filter out books that are already on the bookshelf (rated 'like', 'love', 'picked', or 'passed')
+            const booksToDisplay = recommendedBooks.filter(book => book.userRating !== 'like' && book.userRating !== 'love' && book.userRating !== 'picked' && book.userRating !== 'passed');
+
+            if (booksToDisplay.length === 0) {
+                noBooksMessage.classList.remove('hidden');
+                // Show "Request More Recommendations" button only if not in admin mode
+                if (!isAdminMode) {
+                    requestMoreRecsContainer.classList.remove('hidden');
+                } else {
+                    requestMoreRecsContainer.classList.add('hidden');
+                }
+            } else {
+                noBooksMessage.classList.add('hidden');
+                requestMoreRecsContainer.classList.add('hidden'); // Hide if books are present
+                booksToDisplay.forEach((book, index) => {
+                    const bookCard = document.createElement('div');
+                    // Apply animation delay for staggered effect
+                    bookCard.className = `book-card bg-white rounded-lg shadow-md overflow-hidden flex flex-col`;
+                    bookCard.style.animationDelay = `${index * 0.1}s`; // Stagger animation
+
+                    const description = book.description || 'No description available.';
+
+                    // Admin remove button for recommended reads and Red Flag button (only shown in admin mode)
+                    const adminActionsHtml = isAdminMode ? `
+                        <button class="remove-admin-button" onclick="removeBookFromRecommended('${escapeJsStringForHtmlAttribute(book.title)}')">Remove from Club</button>
+                        <button class="action-button red-flag-btn w-full mt-2" onclick="handleRedFlag('${escapeJsStringForHtmlAttribute(book.title)}', '${escapeJsStringForHtmlAttribute(book.author)}')">🚩 Red Flag</button>
+                    ` : '';
+
+                    // Stringify the entire book object and HTML-escape it for the data attribute
+                    const bookJsonString = escapeHtmlAttribute(JSON.stringify(book));
+
+                    bookCard.innerHTML = `
+                        <a href="${escapeJsStringForHtmlAttribute(book.goodreadsUrl)}" target="_blank" rel="noopener noreferrer" class="book-link">
+                            <img src="${escapeJsStringForHtmlAttribute(book.imageUrl)}" alt="${escapeJsStringForHtmlAttribute(book.title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover';">
+                            <div class="p-6 flex flex-col flex-grow">
+                                <h3 class="text-xl font-semibold text-gray-900 mb-2">${escapeJsStringForHtmlAttribute(book.title)}</h3>
+                                <p class="text-gray-600 text-sm mb-2">by ${escapeJsStringForHtmlAttribute(book.author)}</p>
+                                ${book.rating ? getStarRatingHtml(book.rating) : ''}
+                                <p class="text-gray-700 text-base book-description flex-grow">${escapeJsStringForHtmlAttribute(description)}</p>
+                            </div>
+                        </a>
+                        <div class="p-6 pt-0 flex flex-col items-center">
+                            <button class="action-button w-full mb-4" onclick="handlePickBook('${escapeJsStringForHtmlAttribute(book.title)}')">Click to Pick!</button>
+                            <button class="action-button insight-btn w-full mb-4" data-book-json="${bookJsonString}" onclick="getPersonalizedInsight(event)">✨ Why for Me?</button>
+                            <button class="action-button pass-btn w-full" onclick="handlePassBook('${escapeJsStringForHtmlAttribute(book.title)}')">Pass</button>
+                            ${adminActionsHtml}
+                        </div>
+                    `;
+                    bookListContainer.appendChild(bookCard);
+                });
+            }
+        }
+
+        /**
+         * Removes a book from the main recommended list (admin action).
+         * @param {string} bookTitle - The title of the book to remove.
+         */
+        function removeBookFromRecommended(bookTitle) {
+            let currentRecommendedBooks = getRecommendedBooks();
+            const updatedRecommendedBooks = currentRecommendedBooks.filter(book => book.title !== bookTitle);
+            saveRecommendedBooks(updatedRecommendedBooks);
+            displayRecommendedBooks(); // Re-render the recommended list
+            showMessage(`"${bookTitle}" has been removed from Recommended Reads.`, false, false);
+        }
+
+        /**
+         * Displays books currently on Beth's bookshelf.
+         * Includes options to update ratings or remove from bookshelf.
+         */
+        function displayBookShelfBooks() {
+            bookShelfBooks = getBookShelfBooks(); // Load from local storage
+            const bookshelfListContainer = document.getElementById('bookshelf-list');
+            const noBookshelfMessage = document.getElementById('no-bookshelf-message');
+            bookshelfListContainer.innerHTML = ''; // Clear existing content
+
+            if (bookShelfBooks.length === 0) {
+                noBookshelfMessage.classList.remove('hidden');
+            } else {
+                noBookshelfMessage.classList.add('hidden');
+                bookShelfBooks.forEach((book, index) => {
+                    const bookCard = document.createElement('div');
+                    // Apply animation delay for staggered effect and add new class for smaller size
+                    bookCard.className = `book-card bookshelf-card-small bg-white rounded-lg shadow-md overflow-hidden flex flex-col`;
+                    bookCard.style.animationDelay = `${index * 0.05}s`; // Faster stagger for more items
+
+                    const description = book.description || 'No description available.';
+                    let userRatingDisplay = '';
+                    let reviewButtonsHtml = '';
+
+                    // Determine display text and button states based on userRating
+                    if (book.userRating === 'picked') {
+                        userRatingDisplay = 'Picked to read!';
+                        reviewButtonsHtml = `
+                            <p class="text-gray-600 text-sm mb-2">After reading, how was it?</p>
+                            <div class="review-buttons" data-book-title="${escapeJsStringForHtmlAttribute(book.title)}">
+                                <button class="review-button" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'mid')">Mid</button>
+                                <button class="review-button" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'like')">Like</button>
+                                <button class="review-button" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'love')">Love</button>
+                            </div>
+                        `;
+                    } else if (book.userRating === 'mid') {
+                        userRatingDisplay = 'You thought this was Mid.';
+                        reviewButtonsHtml = `
+                            <p class="text-gray-600 text-sm mb-2">Change your rating?</p>
+                            <div class="review-buttons" data-book-title="${escapeJsStringForHtmlAttribute(book.title)}">
+                                <button class="review-button selected-mid" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'mid')">Mid</button>
+                                <button class="review-button" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'like')">Like</button>
+                                <button class="review-button" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'love')">Love</button>
+                            </div>
+                        `;
+                    } else if (book.userRating === 'like') {
+                        userRatingDisplay = 'You Liked this!';
+                        reviewButtonsHtml = `
+                            <p class="text-gray-600 text-sm mb-2">Change your rating?</p>
+                            <div class="review-buttons" data-book-title="${escapeJsStringForHtmlAttribute(book.title)}">
+                                <button class="review-button" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'mid')">Mid</button>
+                                <button class="review-button selected-like" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'like')">Like</button>
+                                <button class="review-button" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'love')">Love</button>
+                            </div>
+                        `;
+                    } else if (book.userRating === 'love') {
+                        userRatingDisplay = 'You Loved this!';
+                        reviewButtonsHtml = `
+                            <p class="text-gray-600 text-sm mb-2">Change your rating?</p>
+                            <div class="review-buttons" data-book-title="${escapeJsStringForHtmlAttribute(book.title)}">
+                                <button class="review-button" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'mid')">Mid</button>
+                                <button class="review-button" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'like')">Like</button>
+                                <button class="review-button selected-love" onclick="updateUserRating('${escapeJsStringForHtmlAttribute(book.title)}', 'love')">Love</button>
+                            </div>
+                        `;
+                    }
+
+                    bookCard.innerHTML = `
+                        <a href="${escapeJsStringForHtmlAttribute(book.goodreadsUrl)}" target="_blank" rel="noopener noreferrer" class="book-link">
+                            <img src="${escapeJsStringForHtmlAttribute(book.imageUrl)}" alt="${escapeJsStringForHtmlAttribute(book.title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover';">
+                            <div class="p-6 flex flex-col flex-grow">
+                                <h3 class="text-xl font-semibold text-gray-900 mb-2">${escapeJsStringForHtmlAttribute(book.title)}</h3>
+                                <p class="text-gray-600 text-sm mb-2">by ${escapeJsStringForHtmlAttribute(book.author)}</p>
+                                ${book.rating ? getStarRatingHtml(book.rating) : ''}
+                                <p class="text-gray-700 text-base book-description flex-grow">${escapeJsStringForHtmlAttribute(description)}</p>
+                            </div>
+                        </a>
+                        <div class="p-6 pt-0 flex flex-col items-center">
+                            <p class="text-gray-700 text-lg font-semibold mt-2">${userRatingDisplay}</p>
+                            ${reviewButtonsHtml}
+                            <button class="text-red-500 hover:text-red-700 text-sm font-medium mt-4" onclick="removeBookFromBookshelf('${escapeJsStringForHtmlAttribute(book.title)}')">Remove from Bookshelf</button>
+                        </div>
+                    `;
+                    bookshelfListContainer.appendChild(bookCard);
+                });
+            }
+        }
+
+        /**
+         * Displays books Beth has personally deleted from her bookshelf.
+         */
+        function displayBethsDeletedBooks() {
+            bethDeletedBooks = getBethDeletedBooks();
+            const bethDeletedBooksListContainer = document.getElementById('beth-deleted-books-list');
+            const noBethDeletedBooksMessage = document.getElementById('no-beth-deleted-books-message');
+            bethDeletedBooksListContainer.innerHTML = ''; // Clear existing content
+
+            if (bethDeletedBooks.length === 0) {
+                noBethDeletedBooksMessage.classList.remove('hidden');
+            } else {
+                noBethDeletedBooksMessage.classList.add('hidden');
+                bethDeletedBooks.forEach((book, index) => {
+                    const bookCard = document.createElement('div');
+                    bookCard.className = `book-card bookshelf-card-small bg-white rounded-lg shadow-md overflow-hidden flex flex-col`;
+                    bookCard.style.animationDelay = `${index * 0.05}s`;
+
+                    const description = book.description || 'No description available.';
+
+                    bookCard.innerHTML = `
+                        <a href="${escapeJsStringForHtmlAttribute(book.goodreadsUrl)}" target="_blank" rel="noopener noreferrer" class="book-link">
+                            <img src="${escapeJsStringForHtmlAttribute(book.imageUrl)}" alt="${escapeJsStringForHtmlAttribute(book.title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover';">
+                            <div class="p-6 flex flex-col flex-grow">
+                                <h3 class="text-xl font-semibold text-gray-900 mb-2">${escapeJsStringForHtmlAttribute(book.title)}</h3>
+                                <p class="text-gray-600 text-sm mb-2">by ${escapeJsStringForHtmlAttribute(book.author)}</p>
+                                ${book.rating ? getStarRatingHtml(book.rating) : ''}
+                                <p class="text-gray-700 text-base book-description flex-grow">${escapeJsStringForHtmlAttribute(description)}</p>
+                            </div>
+                        </a>
+                        <div class="p-6 pt-0 flex flex-col items-center">
+                            <button class="action-button w-full mt-4" onclick="restoreBookFromBethDeleted('${escapeJsStringForHtmlAttribute(book.title)}')">Restore to Bookshelf</button>
+                        </div>
+                    `;
+                    bethDeletedBooksListContainer.appendChild(bookCard);
+                });
+            }
+        }
+
+        /**
+         * Displays books that have been flagged by the admin (passed or red-flagged).
+         */
+        function displayFlaggedBooks() {
+            flaggedBooks = getFlaggedBooks();
+            const flaggedBooksListContainer = document.getElementById('flagged-books-list');
+            const noFlaggedBooksMessage = document.getElementById('no-flagged-books-message');
+            flaggedBooksListContainer.innerHTML = ''; // Clear existing content
+
+            if (flaggedBooks.length === 0) {
+                noFlaggedBooksMessage.classList.remove('hidden');
+            } else {
+                noFlaggedBooksMessage.classList.add('hidden');
+                flaggedBooks.forEach((book, index) => {
+                    const bookCard = document.createElement('div');
+                    bookCard.className = `book-card bookshelf-card-small bg-white rounded-lg shadow-md overflow-hidden flex flex-col`;
+                    bookCard.style.animationDelay = `${index * 0.05}s`;
+
+                    const description = book.description || 'No description available.';
+                    const flaggedReason = book.flaggedReason ? `<p class="text-red-500 text-sm mt-2">Reason: ${escapeJsStringForHtmlAttribute(book.flaggedReason)}</p>` : '';
+
+                    bookCard.innerHTML = `
+                        <a href="${escapeJsStringForHtmlAttribute(book.goodreadsUrl)}" target="_blank" rel="noopener noreferrer" class="book-link">
+                            <img src="${escapeJsStringForHtmlAttribute(book.imageUrl)}" alt="${escapeJsStringForHtmlAttribute(book.title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover';">
+                            <div class="p-6 flex flex-col flex-grow">
+                                <h3 class="text-xl font-semibold text-gray-900 mb-2">${escapeJsStringForHtmlAttribute(book.title)}</h3>
+                                <p class="text-gray-600 text-sm mb-2">by ${escapeJsStringForHtmlAttribute(book.author)}</p>
+                                ${book.rating ? getStarRatingHtml(book.rating) : ''}
+                                <p class="text-gray-700 text-base book-description flex-grow">${escapeJsStringForHtmlAttribute(description)}</p>
+                                ${flaggedReason}
+                            </div>
+                        </a>
+                        <div class="p-6 pt-0 flex flex-col items-center">
+                            <button class="action-button w-full mt-4" onclick="restoreBookFromFlagged('${escapeJsStringForHtmlAttribute(book.title)}')">Restore to Recommendations</button>
+                        </div>
+                    `;
+                    flaggedBooksListContainer.appendChild(bookCard);
+                });
+            }
+        }
+
+        /**
+         * Adds a book (from search results or manual entry) to the main curated recommendation list.
+         * @param {Event} event - The click event from the "Add to Beth's Club" button.
+         */
+        async function addBookToCuratedList(event) {
+            const button = event.currentTarget;
+            const bookData = JSON.parse(button.dataset.bookJson); // Parse the JSON string back to an object
+
+            // Extract properties from the parsed bookData object
+            let { title, author, imageUrl, goodreadsUrl, description, subjects, rating } = bookData;
+
+            let descriptionText = description;
+            const actualRating = rating ? parseFloat(rating) : null;
+
+            // If description is still generic, try to fetch a better one
+            if (descriptionText === '' || descriptionText.trim() === '') {
+                const workKeyMatch = goodreadsUrl.match(/\/works\/(OL\d+W)/);
+                if (workKeyMatch && workKeyMatch[1]) {
+                    const fetchedDetails = await fetchBookDetailsFromOpenLibrary(workKeyMatch[1]);
+                    if (fetchedDetails) {
+                        descriptionText = fetchedDetails.description;
+                    }
+                }
+            }
+
+            const newBook = {
+                title: title,
+                author: author,
+                description: descriptionText, // Now potentially updated
+                imageUrl: imageUrl,
+                goodreadsUrl: goodreadsUrl,
+                rating: actualRating,
+                subjects: subjects, // Store subjects
+                userRating: null // Initialize user rating as null
+            };
+
+            let currentRecommendedBooks = getRecommendedBooks();
+            const isDuplicate = currentRecommendedBooks.some(book => book.title === newBook.title && book.author === newBook.author);
+
+            if (!isDuplicate) {
+                currentRecommendedBooks.push(newBook);
+                saveRecommendedBooks(currentRecommendedBooks);
+                // Re-display search results to reflect the addition (optional, but good for UX)
+                displaySearchResults(Array.from(document.getElementById('search-results').children).map(card => JSON.parse(card.querySelector('.action-button').dataset.bookJson)));
+                showMessage(`"${title}" has been added to Beth's Book Club!`, false, false);
+                // Keep search results and stay on the tab
+            } else {
+                showMessage(`"${title}" is already in Beth's Book Club!`, false, false);
+            }
+        }
+
+        /**
+         * Manually adds a book to the curated list using an Open Library Work URL (admin action).
+         */
+        async function addBookFromOpenLibraryUrl() {
+            const urlInput = document.getElementById('manual-add-url-input');
+            const url = urlInput.value.trim();
+            const loader = document.getElementById('search-loader');
+            const message = document.getElementById('search-message');
+
+            message.classList.add('hidden');
+            loader.style.display = 'block';
+
+            const workKeyMatch = url.match(/\/works\/(OL\d+W)/);
+            if (!workKeyMatch || !workKeyMatch[1]) {
+                loader.style.display = 'none';
+                showMessage('Invalid Open Library Work URL. Please provide a URL like https://openlibrary.org/works/OL12345W', false, false);
+                return;
+            }
+
+            const workKey = workKeyMatch[1];
+
+            try {
+                const bookDetails = await fetchBookDetailsFromOpenLibrary(workKey);
+
+                if (!bookDetails) {
+                    loader.style.display = 'none';
+                    showMessage('Failed to retrieve book details from the provided Open Library URL. Please check the URL and try again.', false, false);
+                    return;
+                }
+
+                // Construct the new book object. Note: For manual adds, we bypass some filters.
+                const newBook = {
+                    title: bookDetails.title,
+                    author: bookDetails.author,
+                    description: bookDetails.description,
+                    imageUrl: bookDetails.imageUrl,
+                    goodreadsUrl: bookDetails.goodreadsUrl,
+                    rating: bookDetails.rating,
+                    subjects: bookDetails.subjects,
+                    userRating: null, // Manually added books start with no user rating
+                    source: 'Manually Added (Admin)'
+                };
+
+                let currentRecommendedBooks = getRecommendedBooks();
+                const isDuplicate = currentRecommendedBooks.some(book => book.title === newBook.title && newBook.author && book.author === newBook.author);
+
+                if (!isDuplicate) {
+                    currentRecommendedBooks.push(newBook);
+                    saveRecommendedBooks(currentRecommendedBooks);
+                    displayRecommendedBooks();
+                    showMessage(`"${newBook.title}" has been manually added to Beth's Book Club!`, false, false);
+                    urlInput.value = ''; // Clear input
+                    toggleAdminSearchPanel(); // Hide admin panel after adding
+                    showView('recommendations-view'); // Ensure we are on the recommendations view
+                } else {
+                    showMessage(`"${newBook.title}" is already in Beth's Book Club!`, false, false);
+                }
+
+            } catch (error) {
+                console.error('ERROR: Error manually adding book from Open Library URL:', error);
+                showMessage('An error occurred while trying to add the book. Please try again.', false, false);
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        /**
+         * Removes a book from Beth's bookshelf and moves it to her deleted books list.
+         * @param {string} bookTitle - The title of the book to remove.
+         */
+        function removeBookFromBookshelf(bookTitle) {
+            let currentBookshelfBooks = getBookShelfBooks();
+            let currentBethDeletedBooks = getBethDeletedBooks();
+
+            const bookIndex = currentBookshelfBooks.findIndex(book => book.title === bookTitle);
+
+            if (bookIndex !== -1) {
+                const [removedBook] = currentBookshelfBooks.splice(bookIndex, 1); // Remove and get the book
+                currentBethDeletedBooks.push(removedBook); // Add to Beth's deleted list
+
+                saveBookShelfBooks(currentBookshelfBooks);
+                saveBethDeletedBooks(currentBethDeletedBooks);
+
+                displayBookShelfBooks(); // Re-render the bookshelf list
+                displayBethsDeletedBooks(); // Re-render Beth's deleted list
+                showMessage(`"${bookTitle}" has been moved to Beth's Deleted Books.`, false, false);
+            }
+        }
+
+        /**
+         * Restores a book from Beth's deleted books list back to her bookshelf.
+         * @param {string} bookTitle - The title of the book to restore.
+         */
+        function restoreBookFromBethDeleted(bookTitle) {
+            let currentBookshelfBooks = getBookShelfBooks();
+            let currentBethDeletedBooks = getBethDeletedBooks();
+
+            const bookIndex = currentBethDeletedBooks.findIndex(book => book.title === bookTitle);
+
+            if (bookIndex !== -1) {
+                const [restoredBook] = currentBethDeletedBooks.splice(bookIndex, 1); // Remove from Beth's deleted
+                restoredBook.userRating = 'picked'; // Set to 'picked' so review buttons show
+                currentBookshelfBooks.push(restoredBook); // Add back to bookshelf
+
+                saveBookShelfBooks(currentBookshelfBooks);
+                saveBethDeletedBooks(currentBethDeletedBooks);
+
+                displayBookShelfBooks(); // Re-render the bookshelf list
+                displayBethsDeletedBooks(); // Re-render Beth's deleted list
+                showMessage(`"${bookTitle}" has been restored to your Bookshelf!`, false, false);
+            }
+        }
+
+        /**
+         * Restores a book from the admin's flagged list back to the main recommendations.
+         * @param {string} bookTitle - The title of the book to restore.
+         */
+        function restoreBookFromFlagged(bookTitle) {
+            let currentRecommendedBooks = getRecommendedBooks();
+            let currentFlaggedBooks = getFlaggedBooks();
+
+            const bookIndex = currentFlaggedBooks.findIndex(book => book.title === bookTitle);
+
+            if (bookIndex !== -1) {
+                const [restoredBook] = currentFlaggedBooks.splice(bookIndex, 1); // Remove from flagged
+                restoredBook.userRating = null; // Reset user rating for recommendations
+                currentRecommendedBooks.push(restoredBook); // Add back to recommendations
+
+                saveRecommendedBooks(currentRecommendedBooks);
+                saveFlaggedBooks(currentFlaggedBooks);
+
+                displayRecommendedBooks(); // Re-render the recommended list
+                displayFlaggedBooks(); // Re-render the flagged list
+                showMessage(`"${bookTitle}" has been restored to Recommended Reads!`, false, false);
+            }
+        }
+
+        /**
+         * Handles the "Pass" button click for Beth. Moves the book to flagged books (admin view).
+         * @param {string} bookTitle - The title of the book to pass.
+         */
+        function handlePassBook(bookTitle) {
+            let currentRecommendedBooks = getRecommendedBooks();
+            let currentFlaggedBooks = getFlaggedBooks();
+
+            const bookIndex = currentRecommendedBooks.findIndex(book => book.title === bookTitle);
+
+            if (bookIndex !== -1) {
+                const [passedBook] = currentRecommendedBooks.splice(bookIndex, 1);
+                passedBook.userRating = 'passed'; // Mark as passed
+                passedBook.flaggedReason = 'Passed by user'; // Add a default reason
+                currentFlaggedBooks.push(passedBook); // Move to flagged books
+
+                saveRecommendedBooks(currentRecommendedBooks);
+                saveFlaggedBooks(currentFlaggedBooks);
+
+                displayRecommendedBooks(); // Refresh recommended list
+                displayFlaggedBooks(); // Refresh flagged books list
+                // Updated message for Beth: no reference to admin-only tab
+                showMessage(`"${passedBook.title}" has been passed. You won't see this recommendation again.`, false, false);
+            }
+        }
+
+        /**
+         * Handles the "Red Flag" button click. Prompts for a reason and moves the book to flagged.
+         * Adds the reason to Beth's negative feedback for AI learning.
+         * @param {string} bookTitle - The title of the book to red flag.
+         * @param {string} bookAuthor - The author of the book.
+         */
+        function handleRedFlag(bookTitle, bookAuthor) {
+            const feedbackPrompt = `Why are you flagging "${bookTitle}" by ${bookAuthor}? (e.g., "romance", "magic", "self-help")`;
+
+            const messageBox = document.getElementById('message-box');
+            const messageText = document.getElementById('message-text');
+            const closeButton = document.getElementById('message-box-close');
+
+            messageText.innerHTML = `
+                <p class="mb-4">${feedbackPrompt}</p>
+                <input type="text" id="flag-reason-input" placeholder="Enter reason (e.g., 'romance', 'magic')"
+                       class="w-full p-2 border border-gray-300 rounded-md mb-4 text-gray-700">
+                <button id="submit-flag-reason" class="action-button px-4 py-2 bg-red-600 hover:bg-red-700">Submit Feedback</button>
+                <button id="cancel-flag" class="mt-2 px-4 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500">Cancel</button>
+            `;
+            messageBox.classList.remove('llm-insight');
+            closeButton.style.display = 'none'; // Hide default close button
+
+            messageBox.style.display = 'block';
+
+            document.getElementById('submit-flag-reason').onclick = () => {
+                const reason = document.getElementById('flag-reason-input').value.trim();
+                if (reason) {
+                    let feedbackList = getNegativeFeedback();
+                    if (!feedbackList.includes(reason.toLowerCase())) {
+                        feedbackList.push(reason.toLowerCase());
+                        saveNegativeFeedback(feedbackList);
+                        showMessage(`Feedback received: "${reason}". AI will learn from this!`, false, false);
+                    } else {
+                        showMessage(`Feedback "${reason}" already recorded.`, false, false);
+                    }
+                } else {
+                    showMessage('No feedback provided.', false, false);
+                }
+                messageBox.style.display = 'none'; // Hide the modal
+
+                // Move the book to flagged books
+                let currentRecommendedBooks = getRecommendedBooks();
+                let currentFlaggedBooks = getFlaggedBooks();
+                const bookIndex = currentRecommendedBooks.findIndex(book => book.title === bookTitle);
+
+                if (bookIndex !== -1) {
+                    const [flaggedBook] = currentRecommendedBooks.splice(bookIndex, 1);
+                    flaggedBook.userRating = 'flagged'; // Mark as flagged
+                    flaggedBook.flaggedReason = reason || 'No reason provided'; // Store the reason
+                    currentFlaggedBooks.push(flaggedBook);
+
+                    saveRecommendedBooks(currentRecommendedBooks);
+                    saveFlaggedBooks(currentFlaggedBooks);
+
+                    displayRecommendedBooks();
+                    displayFlaggedBooks();
+                }
+            };
+
+            document.getElementById('cancel-flag').onclick = () => {
+                messageBox.style.display = 'none';
+            };
+        }
+
+        /**
+         * Updates the user's rating for a book (Mid, Like, Love).
+         * Moves books between recommended and bookshelf lists as appropriate.
+         * @param {string} bookTitle - The title of the book to rate.
+         * @param {string} rating - The new rating ('mid', 'like', 'love', 'picked', 'passed').
+         */
+        function updateUserRating(bookTitle, rating) {
+            let currentRecommendedBooks = getRecommendedBooks();
+            let currentBookshelfBooks = getBookShelfBooks();
+            let currentFlaggedBooks = getFlaggedBooks();
+            let currentBethDeletedBooks = getBethDeletedBooks();
+
+            // First, try to find the book in recommendedBooks
+            const recommendedBookIndex = currentRecommendedBooks.findIndex(book => book.title === bookTitle);
+            if (recommendedBookIndex !== -1) {
+                currentRecommendedBooks[recommendedBookIndex].userRating = rating;
+
+                // If rated 'like' or 'love', move it to bookshelf
+                if (rating === 'like' || rating === 'love') {
+                    const bookToMove = currentRecommendedBooks[recommendedBookIndex];
+                    // Check if book already exists on bookshelf by title AND author to prevent duplicates
+                    const isAlreadyOnShelf = currentBookshelfBooks.some(book => book.title === bookToMove.title && book.author === bookToMove.author);
+                    if (!isAlreadyOnShelf) {
+                        currentBookshelfBooks.push(bookToMove);
+                        saveBookShelfBooks(currentBookshelfBooks);
+                    }
+                    // Remove from recommended list
+                    currentRecommendedBooks.splice(recommendedBookIndex, 1);
+                }
+            }
+
+            // If not found in recommended, try to find it in bookshelf (it might have been 'picked' or previously rated)
+            const bookshelfBookIndex = currentBookshelfBooks.findIndex(book => book.title === bookTitle);
+            if (bookshelfBookIndex !== -1) {
+                currentBookshelfBooks[bookshelfBookIndex].userRating = rating;
+            }
+
+            // If the book was in flagged and is now being rated, remove from flagged
+            const flaggedIndex = currentFlaggedBooks.findIndex(book => book.title === bookTitle);
+            if (flaggedIndex !== -1) {
+                currentFlaggedBooks.splice(flaggedIndex, 1);
+                saveFlaggedBooks(currentFlaggedBooks);
+            }
+
+            // If the book was in Beth's deleted and is now being rated, remove from Beth's deleted
+            const bethDeletedIndex = currentBethDeletedBooks.findIndex(book => book.title === bookTitle);
+            if (bethDeletedIndex !== -1) {
+                currentBethDeletedBooks.splice(bethDeletedIndex, 1);
+                saveBethDeletedBooks(currentBethDeletedBooks);
+            }
+
+            saveRecommendedBooks(currentRecommendedBooks);
+            saveBookShelfBooks(currentBookshelfBooks);
+
+            // Update the visual state of the buttons for the specific book card
+            const bookCardElement = document.querySelector(`.bookshelf-card-small .review-buttons[data-book-title="${escapeJsStringForHtmlAttribute(bookTitle)}"]`);
+            if (bookCardElement) {
+                const buttons = bookCardElement.querySelectorAll('.review-button');
+                buttons.forEach(button => {
+                    button.classList.remove('selected-mid', 'selected-like', 'selected-love');
+                });
+                // Find the button that matches the new rating and apply the class
+                const selectedButton = bookCardElement.querySelector(`.review-button[onclick*="'${escapeJsStringForHtmlAttribute(rating)}'"]`);
+                if (selectedButton) {
+                    selectedButton.classList.add(`selected-${rating}`);
+                }
+            }
+
+            displayRecommendedBooks();
+            displayBookShelfBooks();
+            displayBethsDeletedBooks();
+            displayFlaggedBooks();
+
+            showMessage(`"${bookTitle}" rated as "${rating}"!`, false, false);
+        }
+
+        /**
+         * Calls the LLM to get a critical evaluation (pros, cons, summary) for a given book.
+         * @param {Object} bookDetails - The book object to evaluate.
+         * @returns {Promise<Object>} A promise that resolves to an object with pros, cons, and summary.
+         */
+        async function getAIProsConsSummary(bookDetails) {
+            const { title, author, description, subjects } = bookDetails;
+
+            const favoriteGenres = BETH_GENRE_KEYWORDS.join(', ');
+            const bookshelfBooks = getBookShelfBooks();
+            const lovedBooks = bookshelfBooks.filter(b => b.userRating === 'love');
+            const likedBooks = bookshelfBooks.filter(b => b.userRating === 'like');
+
+            let prompt = `You are an AI assistant evaluating a book for Beth's book club.
+            Beth enjoys the following genres: ${favoriteGenres}.`;
+            if (lovedBooks.length > 0) {
+                prompt += `\nShe has LOVED these books: ${lovedBooks.map(b => `"${b.title}" by ${b.author}`).join('; ')}.`;
+            }
+            if (likedBooks.length > 0) {
+                prompt += `\nShe has LIKED these books: ${likedBooks.map(b => `"${b.title}" by ${b.author}`).join('; ')}.`;
+            }
+            prompt += `\nHere is the book to evaluate:\n`;
+            prompt += `Title: "${title}"\n`;
+            prompt += `Author: ${author}\n`;
+            if (description && description !== '') {
+                prompt += `Description: ${description}\n`;
+            }
+            if (subjects && subjects.length > 0) {
+                prompt += `Subjects/Themes: ${subjects.join(', ')}\n`;
+            }
+            prompt += `\nPlease provide a critical evaluation of this book's suitability for Beth. Include:
+            1. A "Pros" list (why she might like it, connecting to her preferences).
+            2. A "Cons" list (potential reasons she might not like it, considering her dislikes and past negative feedback).
+            3. A concise "Summary" (2-3 sentences).
+            Provide your response as a JSON object with properties: "pros" (array of strings), "cons" (array of strings), "summary" (string).`;
+
+            try {
+                let chatHistory = [];
+                chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+                const payload = {
+                    contents: chatHistory,
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "OBJECT",
+                            properties: {
+                                "pros": { "type": "ARRAY", "items": { "type": "STRING" } },
+                                "cons": { "type": "ARRAY", "items": { "type": "STRING" } },
+                                "summary": { "type": "STRING" }
+                            },
+                            "propertyOrdering": ["pros", "cons", "summary"]
+                        }
+                    }
+                };
+                const apiKey = ""; // Canvas will provide this at runtime
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                let result;
+                let rawResponseText = '';
+                try {
+                    rawResponseText = await response.text();
+                    if (!rawResponseText || rawResponseText.trim() === '') {
+                        throw new Error("Empty or whitespace response from Gemini API.");
+                    }
+                    result = JSON.parse(rawResponseText);
+                } catch (jsonError) {
+                    console.error(`ERROR: Failed to parse LLM evaluation response as JSON:`, jsonError, `Raw response text:`, rawResponseText);
+                    return { pros: ['Failed to generate pros.'], cons: ['Failed to generate cons.'], summary: 'Failed to generate summary.' };
+                }
+
+                if (!response.ok) {
+                    console.error(`ERROR: Gemini API responded with status ${response.status} (evaluation):`, result);
+                    return { pros: ['API error generating pros.'], cons: ['API error generating cons.'], summary: 'API error generating summary.' };
+                }
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const jsonString = result.candidates[0].content.parts[0].text;
+                    const evaluation = JSON.parse(jsonString);
+                    return evaluation;
+                } else {
+                    console.error("ERROR: LLM evaluation response structure unexpected or no candidates:", result);
+                    return { pros: ['No AI pros generated.'], cons: ['No AI cons generated.'], summary: 'No AI summary generated.' };
+                }
+
+            } catch (error) {
+                console.error('ERROR: Error calling Gemini API for evaluation (network/fetch issue):', error);
+                return { pros: ['Network error generating pros.'], cons: ['Network error generating cons.'], summary: 'Network error generating summary.' };
+            }
+        }
+
+        /**
+         * Fetches lightweight trending book candidates from Open Library.
+         * Applies basic filters for essential data, cover, and publication year.
+         * @param {number} limit - The number of results to request per page.
+         * @returns {Promise<Array<Object>>} A promise that resolves to an array of lightweight book candidate objects.
+         */
+        async function getTrendingOpenLibraryCandidates(limit = 30) {
+            let lightweightCandidates = [];
+            const baseUrl = 'https://openlibrary.org/search.json?q=trending_score_hourly_sum%3A%5B1+TO+%2A%5D+language%3Aeng&sort=trending';
+            const numPagesToFetch = 3; // Fetch multiple pages for more candidates
+
+            for (let i = 0; i < numPagesToFetch; i++) {
+                const offset = i * limit;
+                const url = `${baseUrl}&offset=${offset}&limit=${limit}`;
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        console.warn(`WARNING: Failed to fetch trending candidates from Open Library (page ${i + 1}): ${response.status} - ${response.statusText}`);
+                        continue;
+                    }
+                    const data = await response.json();
+
+                    if (data.docs && data.docs.length > 0) {
+                        for (const doc of data.docs) {
+                            const workKeyMatch = doc.key ? doc.key.match(/\/works\/(OL\d+W)/) : null;
+                            // Only add if it has a key, author, cover, valid workKey, and meets min publish year
+                            if (doc.key && (doc.author_name || doc.author) && doc.cover_i && workKeyMatch && workKeyMatch[1] &&
+                                (doc.first_publish_year && doc.first_publish_year >= MIN_PUBLISH_YEAR)) {
+                                lightweightCandidates.push({
+                                    title: doc.title || 'Unknown Title',
+                                    author: doc.author_name ? doc.author_name.join(', ') : (doc.author || 'Unknown Author'),
+                                    description: doc.first_sentence ? doc.first_sentence[0] : '', // Use first sentence for quick check
+                                    imageUrl: doc.cover_i ? `${OPEN_LIBRARY_COVER_URL}${doc.cover_i}-M.jpg` : 'https://placehold.co/400x600/CCCCCC/666666?text=No+Cover',
+                                    goodreadsUrl: doc.key ? `https://openlibrary.org${doc.key}` : '#',
+                                    rating: doc.ratings_average || null,
+                                    subjects: doc.subject || [],
+                                    workKey: workKeyMatch[1],
+                                    source: 'Open Library Trending (Lightweight)',
+                                    first_publish_year: doc.first_publish_year
+                                });
+                            } else {
+                                console.log(`DEBUG: Skipping trending candidate "${doc.title}" - missing essential data, cover, or too old for initial consideration.`);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error(`ERROR: Error fetching trending candidates from Open Library (page ${i + 1}):`, error);
+                }
+            }
+            return lightweightCandidates;
+        }
+
+        /**
+         * Calculates a relevance score for a book based on Beth's preferences.
+         * This score helps prioritize which books are recommended.
+         * @param {Object} book - The book object to score.
+         * @param {Array<Object>} lovedBooks - List of books Beth has loved.
+         * @param {Array<Object>} likedBooks - List of books Beth has liked.
+         * @param {Set<string>} currentSelectedAuthors - Set of authors already selected for the current recommendation batch (to promote diversity).
+         * @returns {number} The calculated score (0-100).
+         */
+        function calculateBookScore(book, lovedBooks, likedBooks, currentSelectedAuthors) {
+            let score = 0;
+            const titleLower = book.title ? String(book.title).toLowerCase() : '';
+            const descriptionLower = book.description ? String(book.description).toLowerCase() : '';
+            const authorLower = book.author ? String(book.author).toLowerCase() : '';
+            const subjectsLower = book.subjects ? book.subjects.map(s => String(s).toLowerCase()) : [];
+
+            // Get all authors currently on Beth's bookshelf (loved or liked)
+            const allBookshelfAuthors = new Set(
+                getBookShelfBooks().map(b => String(b.author).toLowerCase())
+            );
+
+            // Base Score
+            score += 20;
+
+            // 1. Genre Alignment (BETH_GENRE_KEYWORDS)
+            BETH_GENRE_KEYWORDS.forEach(keyword => {
+                if (titleLower.includes(keyword) || descriptionLower.includes(keyword) || subjectsLower.some(s => s.includes(keyword))) {
+                    score += 10;
+                }
+            });
+
+            // 2. Bookshelf Affinity (based on loved/liked authors and subjects)
+            const allLovedAuthors = new Set(lovedBooks.map(b => String(b.author).toLowerCase()));
+            const allLikedAuthors = new Set(likedBooks.map(b => String(b.author).toLowerCase()));
+            const allLovedSubjects = new Set(lovedBooks.flatMap(b => b.subjects ? b.subjects.map(s => String(s).toLowerCase()) : []));
+            const allLikedSubjects = new Set(likedBooks.flatMap(b => b.subjects ? b.subjects.map(s => String(s).toLowerCase()) : []));
+
+            // Author match
+            if (allLovedAuthors.has(authorLower)) {
+                score += 25;
+            } else if (allLikedAuthors.has(authorLower)) {
+                score += 15;
+            }
+
+            // Subject overlap
+            subjectsLower.forEach(subject => {
+                if (allLovedSubjects.has(subject)) {
+                    score += 7;
+                } else if (allLikedSubjects.has(subject)) {
+                    score += 3;
+                }
+            });
+
+            // 3. Open Library Rating
+            if (book.rating && typeof book.rating === 'number') {
+                score += book.rating * 3;
+            }
+
+            // 4. Source Bonus (prioritize AI and bookshelf-based recommendations)
+            if (book.source === 'AI Recommendation') {
+                score += 10;
+            } else if (book.source.includes('Bookshelf')) {
+                score += 8;
+            } else if (book.source.includes('Trending')) {
+                score += 5;
+            }
+
+            // 5. Author Deprioritization (for authors already on Beth's bookshelf)
+            if (allBookshelfAuthors.has(authorLower)) {
+                score -= 5; // Small penalty to encourage diversity over time
+            }
+
+            // 6. Author Deprioritization (within current batch) - to ensure variety in a single recommendation run
+            if (currentSelectedAuthors && currentSelectedAuthors.has(authorLower)) {
+                score -= 20; // Heavier penalty to ensure diverse authors in one batch
+            }
+
+            // Ensure score is between 0 and 100
+            score = Math.max(0, Math.min(100, score));
+
+            return score;
+        }
+
+
+        /**
+         * Generates new book recommendations using a multi-phase approach:
+         * 1. Collects lightweight candidates from various sources (bookshelf-based, AI-powered, trending).
+         * 2. Fetches full details for promising candidates.
+         * 3. Scores books based on Beth's preferences and filters them.
+         * 4. Adds approved recommendations to the admin pending list.
+         */
+        async function generateRecommendations() {
+            const loader = document.getElementById('search-loader');
+            const message = document.getElementById('search-message');
+            const searchResultsContainer = document.getElementById('search-results');
+
+            searchResultsContainer.innerHTML = '';
+            message.classList.add('hidden');
+            loader.style.display = 'block';
+            showMessage('Generating recommendations... This might take a moment.', true, false);
+
+            const TARGET_BOOKS = 6;
+            const MIN_SCORE_THRESHOLD = 50; // Minimum score for a book to be recommended
+            const MAX_CANDIDATE_FETCH_ATTEMPTS = 5; // Max attempts to fetch batches of lightweight candidates
+            const OPEN_LIBRARY_LIGHTWEIGHT_LIMIT = 50; // Number of lightweight candidates to fetch per query
+            const FULL_DETAIL_FETCH_BATCH_SIZE = 10; // How many full book details to fetch in one go
+
+            let allLightweightCandidates = [];
+            const processedWorkKeys = new Set(); // To avoid duplicates and re-fetching full details
+
+            // Collect titles of all existing books to avoid recommending duplicates
+            const existingBookTitlesLower = new Set(getRecommendedBooks().map(book => book.title.toLowerCase()));
+            getBookShelfBooks().forEach(book => existingBookTitlesLower.add(book.title.toLowerCase()));
+            getFlaggedBooks().forEach(book => existingBookTitlesLower.add(book.title.toLowerCase()));
+            getBethDeletedBooks().forEach(book => existingBookTitlesLower.add(book.title.toLowerCase()));
+            getAdminPendingRecommendations().forEach(book => existingBookTitlesLower.add(book.title.toLowerCase()));
+
+
+            try {
+                // Phase 1: Collect lightweight candidates from various sources
+                for (let attempt = 0; attempt < MAX_CANDIDATE_FETCH_ATTEMPTS; attempt++) {
+                    // Get lightweight bookshelf-based candidates
+                    const bookshelfCandidates = await getBookshelfBasedRecommendations(OPEN_LIBRARY_LIGHTWEIGHT_LIMIT);
+                    allLightweightCandidates = allLightweightCandidates.concat(bookshelfCandidates);
+
+                    // Get lightweight AI-powered candidates
+                    const aiCandidates = await getAIPoweredRecommendations();
+                    allLightweightCandidates = allLightweightCandidates.concat(aiCandidates);
+
+                    // Get lightweight trending candidates
+                    const trendingCandidates = await getTrendingOpenLibraryCandidates(OPEN_LIBRARY_LIGHTWEIGHT_LIMIT);
+                    allLightweightCandidates = allLightweightCandidates.concat(trendingCandidates);
+
+                    // Deduplicate lightweight candidates by workKey
+                    const uniqueLightweightCandidates = [];
+                    const seenLightweightWorkKeys = new Set();
+                    for (const candidate of allLightweightCandidates) {
+                        if (candidate.workKey && !seenLightweightWorkKeys.has(candidate.workKey)) {
+                            uniqueLightweightCandidates.push(candidate);
+                            seenLightweightWorkKeys.add(candidate.workKey);
+                        }
+                    }
+                    allLightweightCandidates = uniqueLightweightCandidates;
+
+                    if (allLightweightCandidates.length >= TARGET_BOOKS * 5) { // Collect a larger buffer for stricter filtering
+                        break;
+                    }
+                }
+
+                // Shuffle all collected lightweight candidates for random selection
+                for (let i = allLightweightCandidates.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [allLightweightCandidates[i], allLightweightCandidates[j]] = [allLightweightCandidates[j], allLightweightCandidates[i]];
+                }
+
+                // Phase 2: Fetch full details and apply scoring/filters until TARGET_BOOKS are found
+                let finalRecommendations = [];
+                let currentCandidateIndex = 0;
+                const selectedAuthorsInCurrentBatch = new Set(); // To track authors for deprioritization within the current batch
+
+                while (finalRecommendations.length < TARGET_BOOKS && currentCandidateIndex < allLightweightCandidates.length) {
+                    const batchToProcess = allLightweightCandidates.slice(currentCandidateIndex, currentCandidateIndex + FULL_DETAIL_FETCH_BATCH_SIZE);
+                    currentCandidateIndex += FULL_DETAIL_FETCH_BATCH_SIZE;
+
+                    for (const lightweightBook of batchToProcess) {
+                        if (finalRecommendations.length >= TARGET_BOOKS) break;
+
+                        if (processedWorkKeys.has(lightweightBook.workKey)) {
+                            continue;
+                        }
+
+                        const fullBookDetails = await fetchBookDetailsFromOpenLibrary(lightweightBook.workKey);
+                        processedWorkKeys.add(lightweightBook.workKey); // Mark as processed regardless of success
+
+                        if (fullBookDetails) { // fullBookDetails will be null if it failed any internal filters (cover, year)
+                            const normalizedTitle = fullBookDetails.title ? String(fullBookDetails.title).toLowerCase() : '';
+                            if (existingBookTitlesLower.has(normalizedTitle)) {
+                                continue;
+                            }
+
+                            // Apply scoring here to decide if it's worth adding, considering author diversity
+                            const lovedBooks = getBookShelfBooks().filter(book => book.userRating === 'love');
+                            const likedBooks = getBookShelfBooks().filter(book => book.userRating === 'like');
+                            const score = calculateBookScore(fullBookDetails, lovedBooks, likedBooks, selectedAuthorsInCurrentBatch);
+
+                            // Only add if score is high enough (after deprioritization)
+                            if (score >= MIN_SCORE_THRESHOLD) {
+                                // Call LLM to get pros, cons, summary
+                                const evaluation = await getAIProsConsSummary(fullBookDetails);
+                                finalRecommendations.push({
+                                    ...fullBookDetails,
+                                    score: score,
+                                    pros: evaluation.pros,
+                                    cons: evaluation.cons,
+                                    summary: evaluation.summary // Store summary as well
+                                });
+                                selectedAuthorsInCurrentBatch.add(fullBookDetails.author.toLowerCase());
+                            }
+                        }
+                    }
+                }
+
+                // Sort recommendations by score in descending order
+                finalRecommendations.sort((a, b) => b.score - a.score);
+
+                loader.style.display = 'none';
+
+                if (finalRecommendations.length > 0) {
+                    // Add new recommendations to the admin pending list
+                    let currentAdminPendingRecommendations = getAdminPendingRecommendations();
+                    const newUniqueRecommendations = deduplicateAndFilterExistingBooks(finalRecommendations.slice(0, TARGET_BOOKS));
+                    currentAdminPendingRecommendations = currentAdminPendingRecommendations.concat(newUniqueRecommendations);
+                    saveAdminPendingRecommendations(currentAdminPendingRecommendations);
+
+                    displayAdminPendingRecommendations(); // Display the new pending list
+                    showMessage('New recommendations generated and awaiting your approval in the Admin Panel!', false, false);
+                } else {
+                    showMessage('No new recommendations found at this time based on Beth\'s preferences and score threshold. Try rating more books or adjusting preferences.', false, false);
+                }
+            } catch (error) {
+                console.error('ERROR: Error during recommendation generation:', error);
+                loader.style.display = 'none';
+                showMessage('Failed to generate recommendations. Please try again later.', false, false);
+            }
+        }
+
+        /**
+         * Generates lightweight book candidates based on books Beth has loved or liked.
+         * Queries Open Library using authors and subjects from Beth's bookshelf.
+         * @param {number} limit - The number of results to request per query.
+         * @returns {Promise<Array<Object>>} A promise that resolves to an array of lightweight book candidate objects.
+         */
+        async function getBookshelfBasedRecommendations(limit = 30) {
+            const lovedBooks = getBookShelfBooks().filter(book => book.userRating === 'love');
+            const likedBooks = getBookShelfBooks().filter(book => book.userRating === 'like');
+
+            if (lovedBooks.length === 0 && likedBooks.length === 0) {
+                return [];
+            }
+
+            let lightweightCandidates = [];
+            let queries = new Set();
+
+            // Generate queries for authors and subjects from loved/liked books
+            lovedBooks.concat(likedBooks).forEach(book => {
+                if (book.author) {
+                    queries.add(book.author.split(',')[0].trim()); // Use first author
+                }
+                if (book.subjects && Array.isArray(book.subjects)) {
+                    book.subjects.slice(0, 2).forEach(subject => { // Use top 2 subjects
+                        queries.add(subject.trim());
+                    });
+                }
+            });
+
+            // Fallback to general genre keywords if no specific bookshelf queries are generated
+            if (queries.size === 0) {
+                BETH_GENRE_KEYWORDS.forEach(genre => queries.add(genre));
+            }
+
+            for (const q of Array.from(queries)) {
+                const fullQuery = `${q} AND language:eng`;
+                try {
+                    const response = await fetch(`${OPEN_LIBRARY_SEARCH_URL}${encodeURIComponent(fullQuery)}&limit=${limit}`);
+                    if (!response.ok) {
+                        console.warn(`WARNING: Open Library sub-query failed for "${fullQuery}": ${response.status}`);
+                        continue;
+                    }
+                    const data = await response.json();
+
+                    if (data.docs && data.docs.length > 0) {
+                        for (const doc of data.docs) {
+                            const workKeyMatch = doc.key ? doc.key.match(/\/works\/(OL\d+W)/) : null;
+                            // Only add if it has a key, author, cover, valid workKey, and meets min publish year
+                            if (doc.key && (doc.author_name || doc.author) && doc.cover_i && workKeyMatch && workKeyMatch[1] &&
+                                (doc.first_publish_year && doc.first_publish_year >= MIN_PUBLISH_YEAR)) {
+                                lightweightCandidates.push({
+                                    title: doc.title || 'Unknown Title',
+                                    author: doc.author_name ? doc.author_name.join(', ') : (doc.author || 'Unknown Author'),
+                                    description: doc.first_sentence ? doc.first_sentence[0] : '',
+                                    imageUrl: doc.cover_i ? `${OPEN_LIBRARY_COVER_URL}${doc.cover_i}-M.jpg` : 'https://placehold.co/400x600/CCCCCC/666666?text=No+Cover',
+                                    goodreadsUrl: doc.key ? `https://openlibrary.org${doc.key}` : '#',
+                                    rating: doc.ratings_average || null,
+                                    subjects: doc.subject || [],
+                                    workKey: workKeyMatch[1],
+                                    source: 'Based on Bookshelf (Open Library - Lightweight)',
+                                    first_publish_year: doc.first_publish_year
+                                });
+                            } else {
+                                console.log(`DEBUG: Skipping bookshelf-based candidate "${doc.title}" - missing essential data, cover, or too old for initial consideration.`);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error(`ERROR: Error fetching Open Library sub-query for "${fullQuery}":`, error);
+                }
+            }
+            return lightweightCandidates;
+        }
+
+        /**
+         * Generates AI-powered book recommendations by prompting a language model.
+         * The AI considers Beth's preferences and negative feedback.
+         * Fetches corresponding Open Library details for the AI-suggested books.
+         * @returns {Promise<Array<Object>>} A promise that resolves to an array of lightweight book candidate objects from AI.
+         */
+        async function getAIPoweredRecommendations() {
+            const lovedBooks = getBookShelfBooks().filter(book => book.userRating === 'love');
+            const likedBooks = getBookShelfBooks().filter(book => book.userRating === 'like');
+            const negativeFeedbackTerms = getNegativeFeedback();
+
+            let prompt = `You are a book recommendation engine for a person named Beth.
+            Beth enjoys the following genres: ${BETH_GENRE_KEYWORDS.join(', ')}.`;
+
+            if (lovedBooks.length > 0) {
+                prompt += `\nShe has LOVED these books: ${lovedBooks.map(b => `"${b.title}" by ${b.author}`).join('; ')}.`;
+            }
+            if (likedBooks.length > 0) {
+                prompt += `\nShe has LIKED these books: ${likedBooks.map(b => `"${b.title}" by ${b.author}`).join('; ')}.`;
+            }
+
+            prompt += `\nBased on these preferences, please provide 5-10 new book titles and their authors that Beth might enjoy.
+            **Crucially, prioritize recommending books by authors she has NOT read yet, but whose writing style, thematic elements, or overall vibe are similar to the authors she has loved or liked.** Focus on books that are currently popular or widely discussed in online book communities, reflecting current trends in her preferred genres.
+            Also, pay attention to the writing style: recommend writers that use similar writing styles to the books Beth loves and likes, and explicitly shy away from stiffer written books by writers like Agatha Christie.
+            IMPORTANT: Do NOT recommend books related to occult, demonism, spiritism, witchcraft, or any general fantasy/magic themes.
+            IMPORTANT: Also, strictly avoid self-help, how-to guides, manuals, and romance novels.`;
+
+            // Add dynamic negative feedback from user
+            if (negativeFeedbackTerms.length > 0) {
+                prompt += `\nIMPORTANT: Based on previous feedback, also strictly avoid books with these themes or genres: ${negativeFeedbackTerms.join(', ')}.`;
+            }
+
+            // Added flexibility instruction
+            prompt += `\nProvide your recommendations as a JSON array of objects, each with a "title" and "author" property.
+            Example: [{"title": "Book Title One", "author": "Author Name One"}, {"title": "Book Title Two", "author": "Author Name Two"}].
+            If you cannot find specific books that perfectly match all criteria, please still provide a few general recommendations in the requested JSON format.`;
+
+            let aiLightweightCandidates = [];
+
+            try {
+                let chatHistory = [];
+                chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+                const payload = {
+                    contents: chatHistory,
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "ARRAY",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    "title": { "type": "STRING" },
+                                    "author": { "type": "STRING" }
+                                },
+                                "propertyOrdering": ["title", "author"]
+                            }
+                        }
+                    }
+                };
+                const apiKey = ""; // Canvas will provide this at runtime
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                let result;
+                let rawResponseText = '';
+
+                try {
+                    rawResponseText = await response.text();
+                    if (!rawResponseText || rawResponseText.trim() === '') {
+                        throw new Error("Empty or whitespace response from Gemini API.");
+                    }
+                    result = JSON.parse(rawResponseText);
+                } catch (jsonError) {
+                    console.error(`ERROR: Failed to parse Gemini API response as JSON:`, jsonError, `Raw response text:`, rawResponseText);
+                    showMessage('Failed to get AI recommendations due to an invalid API response. Please try again.', false, false);
+                    return [];
+                }
+
+                if (!response.ok) {
+                    console.error(`ERROR: Gemini API responded with status ${response.status}:`, result);
+                    showMessage(`Failed to get AI recommendations. API error: ${response.status}.`, false, false);
+                    return [];
+                }
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const jsonString = result.candidates[0].content.parts[0].text;
+
+                    if (!jsonString || jsonString.trim() === '') {
+                        console.error('ERROR: Gemini API returned empty or whitespace JSON string for recommendations.');
+                        showMessage('AI recommendations could not be generated (empty response). Please try again.', false, false);
+                        return [];
+                    }
+
+                    try {
+                        const parsedRecommendations = JSON.parse(jsonString);
+
+                        for (const rec of parsedRecommendations) {
+                            const query = `${rec.title} ${rec.author}`;
+                            const olResponse = await fetch(`${OPEN_LIBRARY_SEARCH_URL}${encodeURIComponent(query)}&limit=1`); // Limit to 1 best match
+                            if (!olResponse.ok) {
+                                console.warn(`WARNING: Open Library search failed for AI book "${query}": ${olResponse.status}`);
+                                continue;
+                            }
+                            const olData = await olResponse.json();
+
+                            if (olData.docs && olData.docs.length > 0) {
+                                const doc = olData.docs[0];
+                                const workKeyMatch = doc.key ? doc.key.match(/\/works\/(OL\d+W)/) : null;
+                                // Only add if it has a key, author, cover, valid workKey, and meets min publish year
+                                if (doc.key && (doc.author_name || doc.author) && doc.cover_i && workKeyMatch && workKeyMatch[1] &&
+                                    (doc.first_publish_year && doc.first_publish_year >= MIN_PUBLISH_YEAR)) {
+                                    aiLightweightCandidates.push({
+                                        title: doc.title || 'Unknown Title',
+                                        author: doc.author_name ? doc.author_name.join(', ') : (doc.author || rec.author),
+                                        description: doc.first_sentence ? doc.first_sentence[0] : '',
+                                        imageUrl: doc.cover_i ? `${OPEN_LIBRARY_COVER_URL}${doc.cover_i}-M.jpg` : 'https://placehold.co/400x600/CCCCCC/666666?text=No+Cover',
+                                        goodreadsUrl: doc.key ? `https://openlibrary.org${doc.key}` : '#',
+                                        rating: doc.ratings_average || null,
+                                        subjects: doc.subject || [],
+                                        workKey: workKeyMatch[1],
+                                        source: 'AI Recommendation (Lightweight)',
+                                        first_publish_year: doc.first_publish_year
+                                    });
+                                } else {
+                                    console.log(`DEBUG: Skipping AI-suggested book "${doc.title}" - missing essential data, cover, or too old for initial consideration.`);
+                                }
+                            } else {
+                                console.log(`DEBUG: No Open Library match found for AI-suggested book: "${query}"`);
+                            }
+                        }
+
+                    } catch (parseError) {
+                        console.error('ERROR: Failed to parse AI recommendations JSON from LLM response:', parseError, 'Raw JSON string:', jsonString);
+                        showMessage('AI recommendations could not be parsed. Please try again.', false, false);
+                    }
+                } else {
+                    console.error("ERROR: AI response structure unexpected or no candidates:", result);
+                    showMessage('Could not generate AI recommendations. Please try again.', false, false);
+                }
+
+            } catch (error) {
+                console.error('ERROR: Error calling Gemini API for insight (network/fetch issue):', error);
+                showMessage('Failed to get AI recommendations. Please check your network connection or API key.', false, false);
+            }
+            return aiLightweightCandidates;
+        }
+
+        /**
+         * Deduplicates a list of books and filters out any books that already exist
+         * in the main recommended, bookshelf, flagged, Beth's deleted, or admin pending lists.
+         * @param {Array<Object>} booksArray - The array of book objects to deduplicate and filter.
+         * @returns {Array<Object>} A new array containing only unique and non-existing books.
+         */
+        function deduplicateAndFilterExistingBooks(booksArray) {
+            const seenTitles = new Set();
+            const uniqueBooks = [];
+            // Collect all existing book titles (case-insensitive) from all relevant storage areas
+            const existingBookTitles = new Set(recommendedBooks.map(book => book.title.toLowerCase()));
+            getBookShelfBooks().forEach(book => existingBookTitles.add(book.title.toLowerCase()));
+            getFlaggedBooks().forEach(book => existingBookTitles.add(book.title.toLowerCase()));
+            getBethDeletedBooks().forEach(book => existingBookTitles.add(book.title.toLowerCase()));
+            getAdminPendingRecommendations().forEach(book => existingBookTitles.add(book.title.toLowerCase()));
+
+            for (const book of booksArray) {
+                const normalizedTitle = book.title ? String(book.title).toLowerCase() : '';
+                // Only add if not already seen in this batch and not an existing book in any other list
+                if (!seenTitles.has(normalizedTitle) && !existingBookTitles.has(normalizedTitle)) {
+                    seenTitles.add(normalizedTitle);
+                    uniqueBooks.push(book);
+                } else {
+                    if (seenTitles.has(normalizedTitle)) {
+                        console.log(`DEBUG: Deduplicating "${book.title}" - already seen in this batch.`);
+                    }
+                    if (existingBookTitles.has(normalizedTitle)) {
+                        console.log(`DEBUG: Filtering out "${book.title}" - already in recommended/bookshelf/flagged/Beth's deleted/pending.`);
+                    }
+                }
+            }
+            return uniqueBooks;
+        }
+
+        /**
+         * Fetches a personalized insight from the LLM about why a specific book is recommended for Beth.
+         * Displays the insight in a message box.
+         * @param {Event} event - The click event from the "Why for Me?" button.
+         */
+        async function getPersonalizedInsight(event) {
+            showMessage('Generating personalized insight... This might take a moment.', true, false);
+
+            const button = event.currentTarget;
+            const book = JSON.parse(button.dataset.bookJson);
+
+            const { title, author, description, subjects } = book;
+
+            const favoriteGenres = BETH_GENRE_KEYWORDS.join(', ');
+            const bookshelfBooks = getBookShelfBooks();
+            const lovedBooks = bookshelfBooks.filter(b => b.userRating === 'love').map(b => b.title);
+            const likedBooks = bookshelfBooks.filter(b => b.userRating === 'like').map(b => b.title);
+
+            let prompt = `You are an AI assistant helping Beth understand why a specific book is recommended for her.
+            Speak directly to Beth.`;
+            prompt += `\nYour favorite genres are: ${favoriteGenres}.`;
+            if (lovedBooks.length > 0) {
+                prompt += `\nYou have "loved" the following books: ${lovedBooks.join(', ')}.`;
+            }
+            if (likedBooks.length > 0) {
+                prompt += `\nYou have "liked" the following books: ${likedBooks.join(', ')}.`;
+            }
+            prompt += `\nHere is the book in question:\n`;
+            prompt += `Title: "${title}"\n`;
+            prompt += `Author: ${author}\n`;
+            if (description && description !== '') {
+                prompt += `Description: ${description}\n`;
+            }
+            if (subjects && subjects.length > 0) {
+                prompt += `Subjects/Themes: ${subjects.join(', ')}\n`;
+            }
+            // Explicit instruction to only provide the explanation and strip any leading conversational text
+            prompt += `\nExplain in a friendly, concise, and compelling way why this book is a good recommendation for you, connecting it to your stated preferences and past liked/loved books. Focus on aspects like genre, themes, author style (if applicable), and overall appeal for someone with your tastes. Keep it to 2-3 sentences. Your response MUST ONLY be the explanation itself, starting directly with the reason, and contain no introductory phrases, conversational filler, or repetition of the book title/your role.`;
+
+            try {
+                let chatHistory = [];
+                chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+                const payload = { contents: chatHistory };
+                const apiKey = ""; // Canvas will provide this at runtime
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                let insightResult;
+                try {
+                    insightResult = await response.json();
+                } catch (jsonError) {
+                    const errorText = await response.text();
+                    console.error(`ERROR: Failed to parse LLM insight response as JSON:`, jsonError, `Raw response text:`, errorText);
+                    showMessage('Could not generate insight due to an invalid API response. Please try again.', false, false);
+                    return;
+                }
+
+                if (!response.ok) {
+                    console.error(`ERROR: LLM insight API responded with status ${response.status}:`, insightResult);
+                    showMessage(`Could not generate insight. API error: ${response.status}.`, false, false);
+                    return;
+                }
+
+                if (insightResult.candidates && insightResult.candidates.length > 0 &&
+                    insightResult.candidates[0].content && insightResult.candidates[0].content.parts &&
+                    insightResult.candidates[0].content.parts.length > 0) {
+                    let insightText = insightResult.candidates[0].content.parts[0].text;
+                    // Post-process to remove any lingering conversational intros
+                    insightText = insightText.replace(/^(Sure, here's why this book is a good recommendation for Beth:|Here's why this book is a good recommendation for Beth:|This book is a good recommendation for Beth because|This book is recommended for Beth because|Here's why this book is recommended for Beth:)\s*/i, '');
+                    insightText = insightText.replace(new RegExp(`^\\*\\*Why "${title}" for Beth\\?\\*\\*\\n\\n`, 'i'), '');
+                    insightText = insightText.replace(/^(This book is recommended for you because|You might enjoy this book because|This book aligns with your preferences because|This book is a great fit for you because)\s*/i, '');
+
+                    showMessage(`${insightText}`, false, true);
+                } else {
+                    console.error("ERROR: LLM response structure unexpected:", insightResult);
+                    showMessage('Could not generate insight. Please try again.', false, false);
+                }
+
+            } catch (error) {
+                console.error('ERROR: Error calling Gemini API for insight (network/fetch issue):', error);
+                showMessage('Failed to get personalized insight. Please check your network connection or API key.', false, false);
+            }
+        }
+
+        /**
+         * Evaluates a book for Beth using AI, providing pros, cons, and a summary.
+         * Displays the evaluation in a message box and offers an option to add to recommendations.
+         */
+        async function evaluateBookForBeth() {
+            const urlInput = document.getElementById('evaluate-book-url-input');
+            const url = urlInput.value.trim();
+            const loader = document.getElementById('search-loader');
+            const message = document.getElementById('search-message');
+
+            message.classList.add('hidden');
+            loader.style.display = 'block';
+            showMessage('Evaluating book for Beth... This might take a moment.', true, false);
+
+            const workKeyMatch = url.match(/\/works\/(OL\d+W)/);
+            if (!workKeyMatch || !workKeyMatch[1]) {
+                loader.style.display = 'none';
+                showMessage('Invalid Open Library Work URL. Please provide a URL like https://openlibrary.org/works/OL12345W', false, false);
+                return;
+            }
+
+            const workKey = workKeyMatch[1];
+
+            try {
+                const bookDetails = await fetchBookDetailsFromOpenLibrary(workKey);
+
+                if (!bookDetails) {
+                    loader.style.display = 'none';
+                    showMessage('Failed to retrieve book details from the provided Open Library URL. Please check the URL and try again.', false, false);
+                    return;
+                }
+
+                const { title, author, description, subjects } = bookDetails;
+
+                const bookshelfBooks = getBookShelfBooks();
+                const lovedBooks = bookshelfBooks.filter(b => b.userRating === 'love');
+                const likedBooks = bookshelfBooks.filter(b => b.userRating === 'like');
+
+                // Calculate the score using the shared scoring function
+                const internalScore = calculateBookScore(bookDetails, lovedBooks, likedBooks, new Set());
+
+                // Use the new helper function to get evaluation
+                const evaluation = await getAIProsConsSummary(bookDetails);
+
+                let evaluationHtml = `
+                    <h3 class="text-xl font-bold mb-2">Evaluation for "${title}" by ${author}</h3>
+                    <p class="text-lg font-semibold mb-4">Internal Score: <span class="text-emerald-600">${internalScore}/100</span></p>
+                    <p class="mb-4">${evaluation.summary}</p>
+                    <div class="mb-4">
+                        <h4 class="font-semibold text-green-700">Pros:</h4>
+                        <ul class="list-disc list-inside text-left">
+                            ${evaluation.pros.map(p => `<li>${escapeHtmlAttribute(p)}</li>`).join('')}
+                        </ul>
+                    </div>
+                    <div class="mb-4">
+                        <h4 class="font-semibold text-red-700">Cons:</h4>
+                        <ul class="list-disc list-inside text-left">
+                            ${evaluation.cons.map(c => `<li>${escapeHtmlAttribute(c)}</li>`).join('')}
+                        </ul>
+                    </div>
+                    <button id="add-evaluated-book-button" class="action-button mt-4 px-6 py-3 bg-emerald-600 hover:bg-emerald-700">Add to Recommended Reads</button>
+                `;
+
+                showMessage(evaluationHtml, false, true); // Show as LLM insight
+
+                // Attach event listener to the "Add to Recommended Reads" button
+                document.getElementById('add-evaluated-book-button').onclick = () => {
+                    // Create a synthetic event object for addBookToCuratedList
+                    const syntheticEvent = {
+                        currentTarget: {
+                            dataset: {
+                                bookJson: JSON.stringify(bookDetails) // Use the original bookDetails
+                            }
+                        }
+                    };
+                    addBookToCuratedList(syntheticEvent);
+                    document.getElementById('message-box').style.display = 'none'; // Close evaluation message
+                    urlInput.value = ''; // Clear input
+                };
+
+            } catch (error) {
+                console.error('ERROR: Error during book evaluation:', error);
+                showMessage('Failed to evaluate book. Please try again later.', false, false);
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+
+        // --- Admin Panel Toggle Function ---
+        /**
+         * Toggles the visibility of the admin search panel and related elements.
+         * Also refreshes relevant display sections.
+         */
+        function toggleAdminSearchPanel() {
+            const adminPanel = document.getElementById('admin-search-panel');
+            const navFlaggedBooks = document.getElementById('nav-flagged-books');
+            const requestMoreRecsContainer = document.getElementById('request-more-recs-container');
+            
+            adminPanel.classList.toggle('hidden');
+            const isAdminModeNow = !adminPanel.classList.contains('hidden');
+            navFlaggedBooks.classList.toggle('hidden', !isAdminModeNow); // Hide if not in admin mode
+            requestMoreRecsContainer.classList.toggle('hidden', isAdminModeNow); // Hide if in admin mode
+
+            // Clear search results and message when toggling
+            document.getElementById('search-results').innerHTML = '';
+            document.getElementById('search-input').value = '';
+            document.getElementById('manual-add-url-input').value = '';
+            document.getElementById('evaluate-book-url-input').value = '';
+            document.getElementById('search-message').classList.add('hidden');
+
+            // Re-render recommended books to show/hide admin remove/flag buttons
+            displayRecommendedBooks();
+            displayAdminAlerts(); // Display admin alerts when panel is visible
+            displayAdminPendingRecommendations(); // Display pending recommendations when admin panel is visible
+        }
+
+        /**
+         * Displays AI-generated recommendations that are awaiting admin approval.
+         * Includes options to approve, remove, or red flag these books.
+         */
+        function displayAdminPendingRecommendations() {
+            adminPendingRecommendations = getAdminPendingRecommendations();
+            const pendingRecsContainer = document.getElementById('admin-pending-recs-container');
+            const pendingRecsList = document.getElementById('admin-pending-recs-list');
+            const noPendingRecsMessage = document.getElementById('no-admin-pending-recs-message');
+
+            pendingRecsList.innerHTML = ''; // Clear existing content
+
+            if (adminPendingRecommendations.length === 0) {
+                pendingRecsContainer.classList.add('hidden');
+                noPendingRecsMessage.classList.remove('hidden');
+            } else {
+                pendingRecsContainer.classList.remove('hidden');
+                noPendingRecsMessage.classList.add('hidden');
+                adminPendingRecommendations.forEach(book => {
+                    const pendingItem = document.createElement('div');
+                    pendingItem.className = 'admin-pending-rec-item';
+
+                    const descriptionHtml = book.description ? `<p class="text-gray-700 text-sm mt-2 mb-2">${escapeHtmlAttribute(book.description)}</p>` : '';
+                    const prosHtml = book.pros && book.pros.length > 0 ? `
+                        <h4 class="font-semibold text-green-700 mt-2">Pros:</h4>
+                        <ul class="list-disc list-inside text-left text-sm">
+                            ${book.pros.map(p => `<li>${escapeHtmlAttribute(p)}</li>`).join('')}
+                        </ul>
+                    ` : '';
+                    const consHtml = book.cons && book.cons.length > 0 ? `
+                        <h4 class="font-semibold text-red-700 mt-2">Cons:</h4>
+                        <ul class="list-disc list-inside text-left text-sm">
+                            ${book.cons.map(c => `<li>${escapeHtmlAttribute(c)}</li>`).join('')}
+                        </ul>
+                    ` : '';
+                    const openLibraryLinkHtml = book.goodreadsUrl ? `
+                        <a href="${escapeJsStringForHtmlAttribute(book.goodreadsUrl)}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline text-sm mt-2 block">View on Open Library</a>
+                    ` : '';
+                    const publishYearHtml = book.first_publish_year ? `<p class="text-gray-600 text-xs mt-1">Published: ${escapeHtmlAttribute(book.first_publish_year)}</p>` : '';
+
+
+                    pendingItem.innerHTML = `
+                        <div class="book-info">
+                            "${escapeHtmlAttribute(book.title)}" by ${escapeHtmlAttribute(book.author)} (Score: ${book.score}/100)
+                            ${publishYearHtml}
+                        </div>
+                        ${descriptionHtml}
+                        ${prosHtml}
+                        ${consHtml}
+                        ${openLibraryLinkHtml}
+                        <div class="flex gap-2 mt-4">
+                            <button class="approve-button flex-grow" data-book-json="${escapeHtmlAttribute(JSON.stringify(book))}" onclick="approveBookForBeth(event)">Approve for Beth</button>
+                            <button class="action-button red-flag-btn flex-grow" onclick="removeBookFromPending('${escapeJsStringForHtmlAttribute(book.title)}')">Remove from Pending</button>
+                            <button class="action-button red-flag-btn flex-grow" onclick="redFlagBookFromPending('${escapeJsStringForHtmlAttribute(book.title)}', '${escapeJsStringForHtmlAttribute(book.author)}')">🚩 Red Flag</button>
+                        </div>
+                    `;
+                    pendingRecsList.appendChild(pendingItem);
+                });
+            }
+        }
+
+        /**
+         * Approves a book from the pending recommendations list, moving it to the main recommended list.
+         * @param {Event} event - The click event from the "Approve for Beth" button.
+         */
+        function approveBookForBeth(event) {
+            const button = event.currentTarget;
+            const bookToApprove = JSON.parse(button.dataset.bookJson);
+
+            let currentRecommendedBooks = getRecommendedBooks();
+            // Check for duplicate by title and author
+            const isDuplicate = currentRecommendedBooks.some(book => book.title === bookToApprove.title && book.author === bookToApprove.author);
+
+            if (!isDuplicate) {
+                currentRecommendedBooks.push(bookToApprove);
+                saveRecommendedBooks(currentRecommendedBooks);
+                showMessage(`"${bookToApprove.title}" has been added to Beth's Recommended Reads!`, false, false);
+
+                // Remove from pending list
+                let currentAdminPendingRecommendations = getAdminPendingRecommendations();
+                const updatedPending = currentAdminPendingRecommendations.filter(book => book.title !== bookToApprove.title || book.author !== bookToApprove.author);
+                saveAdminPendingRecommendations(updatedPending);
+                displayAdminPendingRecommendations(); // Refresh pending list
+                displayRecommendedBooks(); // Refresh recommended list
+            } else {
+                showMessage(`"${bookToApprove.title}" is already in Beth's Recommended Reads!`, false, false);
+                // Still remove from pending list if it's a duplicate
+                let currentAdminPendingRecommendations = getAdminPendingRecommendations();
+                const updatedPending = currentAdminPendingRecommendations.filter(book => book.title !== bookToApprove.title || book.author !== bookToApprove.author);
+                saveAdminPendingRecommendations(updatedPending);
+                displayAdminPendingRecommendations(); // Refresh pending list
+            }
+        }
+
+        /**
+         * Removes a book directly from the pending recommendations list and moves it to flagged books.
+         * @param {string} bookTitle - The title of the book to remove.
+         */
+        function removeBookFromPending(bookTitle) {
+            let currentAdminPendingRecommendations = getAdminPendingRecommendations();
+            let currentFlaggedBooks = getFlaggedBooks();
+
+            const bookIndex = currentAdminPendingRecommendations.findIndex(book => book.title === bookTitle);
+
+            if (bookIndex !== -1) {
+                const [removedBook] = currentAdminPendingRecommendations.splice(bookIndex, 1);
+                removedBook.userRating = 'flagged'; // Mark as flagged
+                removedBook.flaggedReason = 'Removed by Admin from Pending'; // Specific reason
+                currentFlaggedBooks.push(removedBook);
+
+                saveAdminPendingRecommendations(currentAdminPendingRecommendations);
+                saveFlaggedBooks(currentFlaggedBooks);
+
+                displayAdminPendingRecommendations();
+                displayFlaggedBooks();
+                showMessage(`"${removedBook.title}" has been removed from pending and moved to Flagged Books.`, false, false);
+            }
+        }
+
+        /**
+         * Red flags a book directly from the pending recommendations list.
+         * Prompts for a reason and adds it to Beth's negative feedback for AI learning.
+         * @param {string} bookTitle - The title of the book to red flag.
+         * @param {string} bookAuthor - The author of the book.
+         */
+        function redFlagBookFromPending(bookTitle, bookAuthor) {
+            const feedbackPrompt = `Why are you red-flagging "${bookTitle}" by ${bookAuthor} from pending? (e.g., "romance", "magic", "self-help")`;
+
+            const messageBox = document.getElementById('message-box');
+            const messageText = document.getElementById('message-text');
+            const closeButton = document.getElementById('message-box-close');
+
+            messageText.innerHTML = `
+                <p class="mb-4">${feedbackPrompt}</p>
+                <input type="text" id="flag-reason-input" placeholder="Enter reason (e.g., 'romance', 'magic')"
+                       class="w-full p-2 border border-gray-300 rounded-md mb-4 text-gray-700">
+                <button id="submit-flag-reason" class="action-button px-4 py-2 bg-red-600 hover:bg-red-700">Submit Feedback</button>
+                <button id="cancel-flag" class="mt-2 px-4 py-2 bg-gray-400 text-white rounded-md hover:bg-gray-500">Cancel</button>
+            `;
+            messageBox.classList.remove('llm-insight');
+            closeButton.style.display = 'none'; // Hide default close button
+
+            messageBox.style.display = 'block';
+
+            document.getElementById('submit-flag-reason').onclick = () => {
+                const reason = document.getElementById('flag-reason-input').value.trim();
+                if (reason) {
+                    let feedbackList = getNegativeFeedback();
+                    if (!feedbackList.includes(reason.toLowerCase())) {
+                        feedbackList.push(reason.toLowerCase());
+                        saveNegativeFeedback(feedbackList);
+                        showMessage(`Feedback received: "${reason}". AI will learn from this!`, false, false);
+                    } else {
+                        showMessage(`Feedback "${reason}" already recorded.`, false, false);
+                    }
+                } else {
+                    showMessage('No feedback provided.', false, false);
+                }
+                messageBox.style.display = 'none'; // Hide the modal
+
+                // Move the book to flagged books from pending
+                let currentAdminPendingRecommendations = getAdminPendingRecommendations();
+                let currentFlaggedBooks = getFlaggedBooks();
+                const bookIndex = currentAdminPendingRecommendations.findIndex(book => book.title === bookTitle);
+
+                if (bookIndex !== -1) {
+                    const [flaggedBook] = currentAdminPendingRecommendations.splice(bookIndex, 1);
+                    flaggedBook.userRating = 'flagged'; // Mark as flagged
+                    flaggedBook.flaggedReason = reason || 'No reason provided'; // Store the reason
+                    currentFlaggedBooks.push(flaggedBook);
+
+                    saveAdminPendingRecommendations(currentAdminPendingRecommendations);
+                    saveFlaggedBooks(currentFlaggedBooks);
+
+                    displayAdminPendingRecommendations();
+                    displayFlaggedBooks();
+                }
+            };
+
+            document.getElementById('cancel-flag').onclick = () => {
+                messageBox.style.display = 'none';
+            };
+        }
+
+
+        // --- View Management ---
+        /**
+         * Controls which main view section is visible on the page.
+         * Updates navigation button active states and refreshes content for the selected view.
+         * @param {string} viewId - The ID of the view to show (e.g., 'recommendations-view').
+         */
+        function showView(viewId) {
+            const views = ['recommendations-view', 'bookshelf-view', 'beth-deleted-books-view', 'flagged-books-view'];
+            views.forEach(id => {
+                const viewElement = document.getElementById(id);
+                if (viewElement) {
+                    if (id === viewId) {
+                        viewElement.classList.remove('hidden');
+                    } else {
+                        viewElement.classList.add('hidden');
+                    }
+                }
+            });
+
+            // Update active state for navigation buttons
+            document.querySelectorAll('.nav-button').forEach(button => {
+                if (button.id === `nav-${viewId.replace('-view', '')}`) {
+                    button.classList.add('active');
+                } else {
+                    button.classList.remove('active');
+                }
+            });
+
+            // Refresh content for the displayed view
+            if (viewId === 'recommendations-view') {
+                displayRecommendedBooks();
+            } else if (viewId === 'bookshelf-view') {
+                displayBookShelfBooks();
+            } else if (viewId === 'beth-deleted-books-view') {
+                displayBethsDeletedBooks();
+            } else if (viewId === 'flagged-books-view') {
+                displayFlaggedBooks();
+            }
+        }
+
+
+        // --- Utility Functions ---
+
+        /**
+         * Generates HTML for a star rating based on a given numerical rating (out of 5).
+         * Supports full and half stars.
+         * @param {number} rating - The numerical rating (e.g., 4.5).
+         * @returns {string} HTML string for the star rating.
+         */
+        function getStarRatingHtml(rating) {
+            const maxStars = 5;
+            let starsHtml = '';
+            for (let i = 1; i <= maxStars; i++) {
+                if (rating >= i) {
+                    starsHtml += `<svg class="w-5 h-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.538 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.783.57-1.838-.197-1.538-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z"></path></svg>`;
+                } else if (rating > i - 1 && rating < i) {
+                    // Unique ID for each gradient to prevent conflicts
+                    const gradientId = `half-star-gradient-${Math.random().toString(36).substring(2, 9)}`;
+                    starsHtml += `<svg class="w-5 h-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="${gradientId}" x1="0%" y1="0%" y2="0%"><stop offset="${(rating % 1) * 100}%" stop-color="currentColor"/><stop offset="${(rating % 1) * 100}%" stop-color="#d1d5db"/></linearGradient></defs><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.538 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.783.57-1.838-.197-1.538-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z" fill="url(#${gradientId})"></path></svg>`;
+                } else {
+                    starsHtml += `<svg class="w-5 h-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.538 1.118l-2.8-2.034a1 1 0 00-1.176 0l-2.8 2.034c-.783.57-1.838-.197-1.538-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.462a1 1 0 00.95-.69l1.07-3.292z"></path></svg>`;
+                }
+            }
+            return `<div class="star-rating">${starsHtml}</div>`;
+        }
+
+        /**
+         * Handles the "Click to Pick!" button action.
+         * Notifies the admin, moves the book to Beth's bookshelf (marked as 'picked'),
+         * and removes it from the main recommendations.
+         * @param {string} bookTitle - The title of the book Beth picked.
+         */
+        function handlePickBook(bookTitle) {
+            sendAdminAlert('picked_book', bookTitle);
+            showMessage(`You've picked "${bookTitle}"! The admin has been notified.`, false, false);
+
+            let currentRecommendedBooks = getRecommendedBooks();
+            const pickedBookIndex = currentRecommendedBooks.findIndex(book => book.title === bookTitle);
+
+            if (pickedBookIndex !== -1) {
+                const pickedBook = currentRecommendedBooks[pickedBookIndex];
+                
+                pickedBook.userRating = 'picked'; 
+
+                let currentBookshelfBooks = getBookShelfBooks();
+                // Check if book already exists on bookshelf by title AND author to prevent duplicates
+                const isAlreadyOnShelf = currentBookshelfBooks.some(book => book.title === pickedBook.title && book.author === pickedBook.author);
+                if (!isAlreadyOnShelf) {
+                    currentBookshelfBooks.push(pickedBook);
+                    saveBookShelfBooks(currentBookshelfBooks);
+                }
+
+                // Remove from recommended list
+                currentRecommendedBooks.splice(pickedBookIndex, 1);
+                saveRecommendedBooks(currentRecommendedBooks);
+
+                // Refresh both views
+                displayRecommendedBooks();
+                displayBookShelfBooks();
+            }
+        }
+
+        /**
+         * Sends an alert to the admin indicating Beth is ready for more recommendations.
+         */
+        function requestMoreRecommendations() {
+            sendAdminAlert('request_more_recs');
+            showMessage("Your request for more recommendations has been sent to the admin!", false, false);
+        }
+
+        /**
+         * Sends an alert message to the admin panel.
+         * @param {string} type - The type of alert (e.g., 'picked_book', 'request_more_recs').
+         * @param {string} [data=''] - Additional data related to the alert (e.g., book title).
+         */
+        function sendAdminAlert(type, data = '') {
+            let alerts = getAdminAlerts();
+            const timestamp = new Date().toLocaleString();
+            let message = '';
+            let id = Date.now(); // Unique ID for each alert
+
+            if (type === 'picked_book') {
+                message = `Beth picked: "${data}"`;
+            } else if (type === 'request_more_recs') {
+                message = `Beth is ready for more book recommendations!`;
+            }
+
+            alerts.push({ id: id, message: message, timestamp: timestamp });
+            saveAdminAlerts(alerts);
+            displayAdminAlerts(); // Immediately update the admin panel if visible
+        }
+
+        /**
+         * Displays current admin alerts in the admin panel.
+         */
+        function displayAdminAlerts() {
+            const adminAlertsContainer = document.getElementById('admin-alerts-container');
+            const adminAlertsList = document.getElementById('admin-alerts-list');
+            const noAdminAlertsMessage = document.getElementById('no-admin-alerts-message');
+            adminAlerts = getAdminAlerts(); // Load current alerts
+
+            adminAlertsList.innerHTML = ''; // Clear existing alerts
+
+            if (adminAlerts.length === 0) {
+                adminAlertsContainer.classList.add('hidden');
+                noAdminAlertsMessage.classList.remove('hidden');
+            } else {
+                adminAlertsContainer.classList.remove('hidden');
+                noAdminAlertsMessage.classList.add('hidden');
+                adminAlerts.forEach(alert => {
+                    const alertItem = document.createElement('div');
+                    alertItem.className = 'admin-alert-item';
+                    alertItem.innerHTML = `
+                        <span>${escapeHtmlAttribute(alert.message)} <span class="text-gray-500 text-xs ml-2">(${escapeHtmlAttribute(alert.timestamp)})</span></span>
+                        <button class="dismiss-button" onclick="dismissAdminAlert(${alert.id})">Dismiss</button>
+                    `;
+                    adminAlertsList.appendChild(alertItem);
+                });
+            }
+        }
+
+        /**
+         * Dismisses an admin alert, removing it from the list.
+         * @param {number} id - The unique ID of the alert to dismiss.
+         */
+        function dismissAdminAlert(id) {
+            let currentAlerts = getAdminAlerts();
+            const updatedAlerts = currentAlerts.filter(alert => alert.id !== id);
+            saveAdminAlerts(updatedAlerts);
+            displayAdminAlerts(); // Re-render alerts
+        }
+
+
+        /**
+         * Displays a temporary message or a loading indicator in a modal box.
+         * @param {string} text - The message text or content for the loader.
+         * @param {boolean} [isLoader=false] - True if a loader should be shown.
+         * @param {boolean} [isLlmInsight=false] - True if the message is an LLM insight (stays open until closed).
+         */
+        function showMessage(text, isLoader = false, isLlmInsight = false) {
+            const messageBox = document.getElementById('message-box');
+            const messageText = document.getElementById('message-text');
+            const closeButton = document.getElementById('message-box-close');
+
+            messageText.innerHTML = isLoader ? `<div class="loader"></div><p class="mt-4">${text}</p>` : text;
+            messageBox.classList.toggle('llm-insight', isLlmInsight); // Add/remove LLM specific styling
+            closeButton.style.display = isLoader ? 'none' : 'block'; // Hide close button for loaders
+            messageBox.style.display = 'block';
+
+            if (!isLoader && !isLlmInsight) { // Auto-hide for simple messages
+                setTimeout(() => {
+                    messageBox.style.display = 'none';
+                }, 5000);
+            } else if (isLlmInsight) { // Keep LLM insight open until closed manually
+                closeButton.onclick = () => {
+                    messageBox.style.display = 'none';
+                    messageBox.classList.remove('llm-insight');
+                };
+            }
+        }
+
+        // --- Event Listeners and Initial Load ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Set the current year in the footer
+            document.getElementById('current-year').textContent = new Date().getFullYear();
+
+            // Pre-load specific books into Beth's bookshelf with 'loved' rating for initial data
+            const booksToPreload = [
+                { url: 'https://openlibrary.org/works/OL19749472W/Then_she_was_gone', title: 'Then She Was Gone' },
+                { url: 'https://openlibrary.org/works/OL24311121W/Rock_Paper_Scissors', title: 'Rock Paper Scissors' },
+                { url: 'https://openlibrary.org/works/OL19096402W/The_Silent_Patient', title: 'The Silent Patient' }
+            ];
+
+            let currentBookshelfBooks = getBookShelfBooks();
+            let updatedBookshelf = false;
+
+            for (const bookInfo of booksToPreload) {
+                const workKeyMatch = bookInfo.url.match(/\/works\/(OL\d+W)/);
+                if (workKeyMatch && workKeyMatch[1]) {
+                    const workKey = workKeyMatch[1];
+                    // Check if book is already on shelf by its Open Library Work Key
+                    const isAlreadyOnShelf = currentBookshelfBooks.some(book => book.goodreadsUrl && book.goodreadsUrl.includes(workKey));
+
+                    if (!isAlreadyOnShelf) {
+                        const bookDetails = await fetchBookDetailsFromOpenLibrary(workKey);
+                        if (bookDetails) {
+                            currentBookshelfBooks.push({ ...bookDetails, userRating: 'love', source: 'Pre-loaded' });
+                            updatedBookshelf = true;
+                        } else {
+                            console.warn(`WARNING: Failed to fetch details for pre-loaded book: ${bookInfo.title}. It might be too old or missing a cover.`);
+                        }
+                    }
+                }
+            }
+
+            if (updatedBookshelf) {
+                saveBookShelfBooks(currentBookshelfBooks);
+            }
+
+            // Display initial view (Recommended Books)
+            showView('recommendations-view');
+            displayAdminAlerts(); // Load and display admin alerts on startup
+            displayAdminPendingRecommendations(); // Load and display pending recommendations on startup
+
+            // Event listener for the search button (within admin panel)
+            document.getElementById('search-button').addEventListener('click', () => {
+                const query = document.getElementById('search-input').value.trim();
+                if (query) {
+                    searchBooks(query);
+                } else {
+                    showMessage('Please enter a book title or author to search.', false, false);
+                }
+            });
+
+            // Event listener for the recommend button (within admin panel)
+            document.getElementById('recommend-button').addEventListener('click', generateRecommendations);
+
+            // Event listener for the manual add button
+            document.getElementById('manual-add-button').addEventListener('click', addBookFromOpenLibraryUrl);
+
+            // Event listener for the "Request More Recommendations" button
+            document.getElementById('request-more-recs-button').addEventListener('click', requestMoreRecommendations);
+
+            // Event listener for the "Evaluate Book" button
+            document.getElementById('evaluate-book-button').addEventListener('click', evaluateBookForBeth);
+
+            // Allow searching by pressing Enter in the search input field
+            document.getElementById('search-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('search-button').click();
+                }
+            });
+
+            // Allow manual add by pressing Enter in the URL input field
+            document.getElementById('manual-add-url-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('manual-add-button').click();
+                }
+            });
+
+            // Allow evaluation by pressing Enter in the URL input field
+            document.getElementById('evaluate-book-url-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('evaluate-book-button').click();
+                }
+            });
+
+            // Close button for message box
+            document.getElementById('message-box-close').addEventListener('click', () => {
+                document.getElementById('message-box').style.display = 'none';
+                document.getElementById('message-box').classList.remove('llm-insight');
+            });
+        });
+    </script>
+</body>
+</html>
