@@ -1629,7 +1629,7 @@
                         }
                     }
                 };
-                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; 
+                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -2089,8 +2089,11 @@
                         }
                     }
                 };
-                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; 
+                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                console.log("DEBUG: Sending prompt to Gemini API:", prompt); // Log the prompt
+                console.log("DEBUG: Sending payload to Gemini API:", payload); // Log the payload
 
                 const response = await fetch(apiUrl, {
                     method: 'POST',
@@ -2116,7 +2119,11 @@
 
                 if (!response.ok) {
                     console.error(`ERROR: Gemini API responded with status ${response.status}:`, result);
-                    showMessage(`Failed to get AI recommendations. API error: ${response.status}.`, false, false);
+                    let errorMessage = `Failed to get AI recommendations. API error: ${response.status}.`;
+                    if (response.status === 400) {
+                        errorMessage += ` This might be due to an overly restrictive prompt or a content policy violation. Check the console for more details.`;
+                    }
+                    showMessage(errorMessage, false, false);
                     return [];
                 }
 
@@ -2264,7 +2271,7 @@
                 let chatHistory = [];
                 chatHistory.push({ role: "user", parts: [{ text: prompt }] });
                 const payload = { contents: chatHistory };
-                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; 
+                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
