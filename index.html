@@ -568,7 +568,8 @@
             try {
                 const storedBooks = localStorage.getItem(BOOK_SHELF_BOOKS_KEY);
                 return storedBooks ? JSON.parse(storedBooks) : [];
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error parsing stored bookshelf books:", e);
                 return [];
             }
@@ -581,7 +582,8 @@
         function saveBookShelfBooks(books) {
             try {
                 localStorage.setItem(BOOK_SHELF_BOOKS_KEY, JSON.stringify(books));
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error saving bookshelf books to local storage:", e);
             }
         }
@@ -594,7 +596,8 @@
             try {
                 const storedBooks = localStorage.getItem(FLAGGED_BOOKS_KEY);
                 return storedBooks ? JSON.parse(storedBooks) : [];
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error parsing stored flagged books:", e);
                 return [];
             }
@@ -607,7 +610,8 @@
         function saveFlaggedBooks(books) {
             try {
                 localStorage.setItem(FLAGGED_BOOKS_KEY, JSON.stringify(books));
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error saving flagged books to local storage:", e);
             }
         }
@@ -620,7 +624,8 @@
             try {
                 const storedBooks = localStorage.getItem(BETH_DELETED_BOOKS_KEY);
                 return storedBooks ? JSON.parse(storedBooks) : [];
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error parsing stored Beth's deleted books:", e);
                 return [];
             }
@@ -633,7 +638,8 @@
         function saveBethDeletedBooks(books) {
             try {
                 localStorage.setItem(BETH_DELETED_BOOKS_KEY, JSON.stringify(books));
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error saving Beth's deleted books to local storage:", e);
             }
         }
@@ -646,7 +652,8 @@
             try {
                 const storedFeedback = localStorage.getItem(BETH_NEGATIVE_FEEDBACK_KEY);
                 return storedFeedback ? JSON.parse(storedFeedback) : [];
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error parsing stored negative feedback:", e);
                 return [];
             }
@@ -659,7 +666,8 @@
         function saveNegativeFeedback(feedback) {
             try {
                 localStorage.setItem(BETH_NEGATIVE_FEEDBACK_KEY, JSON.stringify(feedback));
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error saving negative feedback to local storage:", e);
             }
         }
@@ -672,7 +680,8 @@
             try {
                 const storedAlerts = localStorage.getItem(ADMIN_ALERTS_KEY);
                 return storedAlerts ? JSON.parse(storedAlerts) : [];
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error parsing stored admin alerts:", e);
                 return [];
             }
@@ -685,7 +694,8 @@
         function saveAdminAlerts(alerts) {
             try {
                 localStorage.setItem(ADMIN_ALERTS_KEY, JSON.stringify(alerts));
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error saving admin alerts to local storage:", e);
             }
         }
@@ -698,7 +708,8 @@
             try {
                 const storedBooks = localStorage.getItem(ADMIN_PENDING_RECS_KEY);
                 return storedBooks ? JSON.parse(storedBooks) : [];
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error parsing stored admin pending recommendations:", e);
                 return [];
             }
@@ -711,7 +722,8 @@
         function saveAdminPendingRecommendations(books) {
             try {
                 localStorage.setItem(ADMIN_PENDING_RECS_KEY, JSON.stringify(books));
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error saving admin pending recommendations to local storage:", e);
             }
         }
@@ -822,7 +834,8 @@
                     source: 'Open Library Work Details',
                     first_publish_year: data.first_publish_year // Include publish year
                 };
-            } catch (error) {
+            }
+            catch (error) {
                 console.error(`ERROR: Error fetching full details for work ${workKey}:`, error);
                 return null;
             }
@@ -886,7 +899,8 @@
                     message.textContent = 'No books found. Try a different search term.';
                     message.classList.remove('hidden');
                 }
-            } catch (error) {
+            }
+            catch (error) {
                 console.error('Error fetching books from Open Library:', error);
                 loader.style.display = 'none'; // Hide loader
                 message.textContent = 'Failed to load search results. Please try again later.';
@@ -1313,10 +1327,12 @@
                     showMessage(`"${newBook.title}" is already in Beth's Book Club!`, false, false);
                 }
 
-            } catch (error) {
+            }
+            catch (error) {
                 console.error('ERROR: Error manually adding book from Open Library URL:', error);
                 showMessage('An error occurred while trying to add the book. Please try again.', false, false);
-            } finally {
+            }
+            finally {
                 loader.style.display = 'none';
             }
         }
@@ -1613,7 +1629,7 @@
                         }
                     }
                 };
-                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; // Canvas will provide this at runtime
+                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -1630,7 +1646,8 @@
                         throw new Error("Empty or whitespace response from Gemini API.");
                     }
                     result = JSON.parse(rawResponseText);
-                } catch (jsonError) {
+                }
+                catch (jsonError) {
                     console.error(`ERROR: Failed to parse LLM evaluation response as JSON:`, jsonError, `Raw response text:`, rawResponseText);
                     return { pros: ['Failed to generate pros.'], cons: ['Failed to generate cons.'], summary: 'Failed to generate summary.' };
                 }
@@ -1651,7 +1668,8 @@
                     return { pros: ['No AI pros generated.'], cons: ['No AI cons generated.'], summary: 'No AI summary generated.' };
                 }
 
-            } catch (error) {
+            }
+            catch (error) {
                 console.error('ERROR: Error calling Gemini API for evaluation (network/fetch issue):', error);
                 return { pros: ['Network error generating pros.'], cons: ['Network error generating cons.'], summary: 'Network error generating summary.' };
             }
@@ -1688,7 +1706,7 @@
                                 lightweightCandidates.push({
                                     title: doc.title || 'Unknown Title',
                                     author: doc.author_name ? doc.author_name.join(', ') : (doc.author || 'Unknown Author'),
-                                    description: doc.first_sentence ? doc.first_sentence[0] : '', // Use first sentence for quick check
+                                    description: doc.first_sentence ? doc.first_sentence[0] : '',
                                     imageUrl: doc.cover_i ? `${OPEN_LIBRARY_COVER_URL}${doc.cover_i}-M.jpg` : 'https://placehold.co/400x600/CCCCCC/666666?text=No+Cover',
                                     goodreadsUrl: doc.key ? `https://openlibrary.org${doc.key}` : '#',
                                     rating: doc.ratings_average || null,
@@ -1702,7 +1720,8 @@
                             }
                         }
                     }
-                } catch (error) {
+                }
+                catch (error) {
                     console.error(`ERROR: Error fetching trending candidates from Open Library (page ${i + 1}):`, error);
                 }
             }
@@ -1928,7 +1947,8 @@
                 } else {
                     showMessage('No new recommendations found at this time based on Beth\'s preferences and score threshold. Try rating more books or adjusting preferences.', false, false);
                 }
-            } catch (error) {
+            }
+            catch (error) {
                 console.error('ERROR: Error during recommendation generation:', error);
                 loader.style.display = 'none';
                 showMessage('Failed to generate recommendations. Please try again later.', false, false);
@@ -2002,7 +2022,8 @@
                             }
                         }
                     }
-                } catch (error) {
+                }
+                catch (error) {
                     console.error(`ERROR: Error fetching Open Library sub-query for "${fullQuery}":`, error);
                 }
             }
@@ -2068,7 +2089,7 @@
                         }
                     }
                 };
-                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; // Canvas will provide this at runtime
+                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -2086,7 +2107,8 @@
                         throw new Error("Empty or whitespace response from Gemini API.");
                     }
                     result = JSON.parse(rawResponseText);
-                } catch (jsonError) {
+                }
+                catch (jsonError) {
                     console.error(`ERROR: Failed to parse Gemini API response as JSON:`, jsonError, `Raw response text:`, rawResponseText);
                     showMessage('Failed to get AI recommendations due to an invalid API response. Please try again.', false, false);
                     return [];
@@ -2147,7 +2169,8 @@
                             }
                         }
 
-                    } catch (parseError) {
+                    }
+                    catch (parseError) {
                         console.error('ERROR: Failed to parse AI recommendations JSON from LLM response:', parseError, 'Raw JSON string:', jsonString);
                         showMessage('AI recommendations could not be parsed. Please try again.', false, false);
                     }
@@ -2156,7 +2179,8 @@
                     showMessage('Could not generate AI recommendations. Please try again.', false, false);
                 }
 
-            } catch (error) {
+            }
+            catch (error) {
                 console.error('ERROR: Error calling Gemini API for insight (network/fetch issue):', error);
                 showMessage('Failed to get AI recommendations. Please check your network connection or API key.', false, false);
             }
@@ -2240,7 +2264,7 @@
                 let chatHistory = [];
                 chatHistory.push({ role: "user", parts: [{ text: prompt }] });
                 const payload = { contents: chatHistory };
-                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; // Canvas will provide this at runtime
+                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -2252,7 +2276,8 @@
                 let insightResult;
                 try {
                     insightResult = await response.json();
-                } catch (jsonError) {
+                }
+                catch (jsonError) {
                     const errorText = await response.text();
                     console.error(`ERROR: Failed to parse LLM insight response as JSON:`, jsonError, `Raw response text:`, errorText);
                     showMessage('Could not generate insight due to an invalid API response. Please try again.', false, false);
@@ -2280,7 +2305,8 @@
                     showMessage('Could not generate insight. Please try again.', false, false);
                 }
 
-            } catch (error) {
+            }
+            catch (error) {
                 console.error('ERROR: Error calling Gemini API for insight (network/fetch issue):', error);
                 showMessage('Failed to get personalized insight. Please check your network connection or API key.', false, false);
             }
@@ -2366,10 +2392,12 @@
                     urlInput.value = ''; // Clear input
                 };
 
-            } catch (error) {
+            }
+            catch (error) {
                 console.error('ERROR: Error during book evaluation:', error);
                 showMessage('Failed to evaluate book. Please try again later.', false, false);
-            } finally {
+            }
+            finally {
                 loader.style.display = 'none';
             }
         }
@@ -2869,7 +2897,7 @@
             });
 
             // Allow evaluation by pressing Enter in the URL input field
-            document.getElementById('evaluate-book-url-input').addEventListener('keypress', (e) => {
+            document.getElementById('evaluate-book-button').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
                     document.getElementById('evaluate-book-button').click();
                 }
