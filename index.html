@@ -366,7 +366,7 @@
             background-color: #3b82f6;
             color: white;
             padding: 0.25rem 0.75rem;
-            border-radius: 0.25rem;
+            border-radius: 0.5rem;
             font-weight: 600;
             cursor: pointer;
             transition: background-color 0.2s;
@@ -1629,7 +1629,7 @@
                         }
                     }
                 };
-                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; 
+                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -2089,7 +2089,7 @@
                         }
                     }
                 };
-                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; 
+                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 console.log("DEBUG: Sending prompt to Gemini API:", prompt); // Log the prompt
@@ -2271,7 +2271,7 @@
                 let chatHistory = [];
                 chatHistory.push({ role: "user", parts: [{ text: prompt }] });
                 const payload = { contents: chatHistory };
-                const apiKey = "AIzaSyDbU1mfXC1PRNaKdxn8EpRR7BzGVDPOE7o"; 
+                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; 
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
