@@ -8,15 +8,21 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs (Modular versions) -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // Basic console log to confirm script is loading
+        console.log("Beth's Book Club script is loading...");
+
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js";
+        import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-analytics.js"; // Added analytics import
 
         // Global Firebase variables (assigned after initialization)
         window.firebaseApp = null;
         window.db = null;
         window.auth = null;
         window.adminUserId = null; // This will store the authenticated user's ID (your ID)
+        window.analytics = null; // Added analytics global
 
         // Global data stores (will be updated by Firestore listeners)
         window.recommendedBooks = [];
@@ -991,7 +997,7 @@
 
             if (bookToPass) {
                 // Send alert BEFORE modifying bookToPass, as sendAdminAlert uses current book data
-                sendAdminAlert('passed_book', bookWorkKey); // Changed type to 'passed_book'
+                await sendAdminAlert('passed_book', bookWorkKey); 
                 
                 // Updated message for Beth: no reference to admin-only tab
                 showMessage(`"${bookToPass.title}" has been passed. You won't see this recommendation again.`, false, false);
@@ -1174,7 +1180,7 @@
                         }
                     }
                 };
-                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk";
+                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; // API Key is set to empty string for Canvas to inject its own.
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -1379,6 +1385,7 @@
 
             const TARGET_BOOKS = 6;
             const MIN_SCORE_THRESHOLD = 50; // Minimum score for a book to be recommended
+            const AUTO_APPROVE_SCORE_THRESHOLD = 80; // New: Score for automatic approval
             const MAX_CANDIDATE_FETCH_ATTEMPTS = 5; // Max attempts to fetch batches of lightweight candidates
             const OPEN_LIBRARY_LIGHTWEIGHT_LIMIT = 50; // Number of lightweight candidates to fetch per query
             const FULL_DETAIL_FETCH_BATCH_SIZE = 10; // How many full book details to fetch in one go
@@ -1484,15 +1491,38 @@
                 if (loader) loader.style.display = 'none';
 
                 if (finalRecommendations.length > 0) {
-                    // Add new recommendations to the admin pending list
+                    let autoApprovedCount = 0;
+                    let pendingApprovalCount = 0;
+
                     for (const book of finalRecommendations.slice(0, TARGET_BOOKS)) {
-                        // Check against current pending list before adding to avoid duplicates that might have been added by another admin session
-                        const isDuplicateInPending = window.adminPendingRecommendations.some(b => b.workKey === book.workKey);
-                        if (!isDuplicateInPending) {
-                            await setBookInFirestore(book, 'admin_pending_recs', window.adminUserId);
+                        // Check against current recommended list before adding to avoid duplicates that might have been added by another admin session
+                        const isDuplicateInRecommended = window.recommendedBooks.some(b => b.workKey === book.workKey);
+
+                        if (!isDuplicateInRecommended) {
+                            if (book.score >= AUTO_APPROVE_SCORE_THRESHOLD) {
+                                // Auto-approve: add directly to recommended_books
+                                await setBookInFirestore(book, 'recommended_books');
+                                autoApprovedCount++;
+                            } else {
+                                // Requires admin approval: add to admin_pending_recs
+                                await setBookInFirestore(book, 'admin_pending_recs', window.adminUserId);
+                                pendingApprovalCount++;
+                            }
                         }
                     }
-                    showMessage('New recommendations generated and awaiting your approval in the Admin Panel!', false, false);
+
+                    let messageText = '';
+                    if (autoApprovedCount > 0) {
+                        messageText += `${autoApprovedCount} new high-scoring recommendations automatically added to Beth's list! `;
+                    }
+                    if (pendingApprovalCount > 0) {
+                        messageText += `${pendingApprovalCount} new recommendations awaiting your approval in the Admin Panel.`;
+                    }
+                    if (messageText === '') {
+                        messageText = 'No new recommendations found at this time based on Beth\'s preferences and score threshold. Try rating more books or adjusting preferences.';
+                    }
+                    showMessage(messageText, false, false);
+
                 } else {
                     showMessage('No new recommendations found at this time based on Beth\'s preferences and score threshold. Try rating more books or adjusting preferences.', false, false);
                 }
@@ -1642,7 +1672,7 @@
                         }
                     }
                 };
-                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk";
+                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; // API Key is set to empty string for Canvas to inject its own.
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 console.log("DEBUG: Sending prompt to Gemini API:", prompt); // Log the prompt
@@ -1831,7 +1861,7 @@
                 let chatHistory = [];
                 chatHistory.push({ role: "user", parts: [{ text: prompt }] });
                 const payload = { contents: chatHistory };
-                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk";
+                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; // API Key is set to empty string for Canvas to inject its own.
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -2382,6 +2412,7 @@
                 // Send alert BEFORE modifying pickedBook, as sendAdminAlert uses current book data
                 await sendAdminAlert('picked_book', bookWorkKey); 
                 
+                // Updated message for Beth: no reference to admin-only tab
                 showMessage(`You've picked "${pickedBook.title}"! The admin has been notified.`, false, false);
                 
                 pickedBook.userRating = 'picked'; 
@@ -2515,7 +2546,7 @@
             closeButton.style.display = isLoader ? 'none' : 'block'; // Hide close button for loaders
             messageBox.style.display = 'block';
 
-            if (!isLoader && !isLlmInsight) { // Auto-hide for simple messages
+            if (!isLoader && !isLlmInsight) { // Auto-hide for simple messages (like "You picked...")
                 setTimeout(() => {
                     messageBox.style.display = 'none';
                 }, 5000);
@@ -2591,11 +2622,31 @@
                 currentYearElement.textContent = new Date().getFullYear();
             }
 
-            // Initialize Firebase
-            const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-            window.firebaseApp = initializeApp(firebaseConfig);
-            window.db = getFirestore(window.firebaseApp);
-            window.auth = getAuth(window.firebaseApp);
+            // --- IMPORTANT: Firebase Initialization for GitHub Deployment ---
+            // When deploying to GitHub, you need to provide your actual Firebase config.
+            // Get this from your Firebase project settings (Project settings > General > Your apps > Web app > Config).
+            // This config is now directly provided by the user.
+            const firebaseConfig = {
+                apiKey: "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk",
+                authDomain: "beths-book-club.firebaseapp.com",
+                projectId: "beths-book-club",
+                storageBucket: "beths-book-club.firebasestorage.app",
+                messagingSenderId: "383122582606",
+                appId: "1:383122582606:web:b187ccfa0bcfeaba7a671f",
+                measurementId: "G-X584KXZ8TX"
+            };
+
+            try {
+                window.firebaseApp = initializeApp(firebaseConfig);
+                window.db = getFirestore(window.firebaseApp);
+                window.auth = getAuth(window.firebaseApp);
+                window.analytics = getAnalytics(window.firebaseApp); // Initialize analytics
+                console.log("Firebase initialized successfully.");
+            } catch (error) {
+                console.error("ERROR: Failed to initialize Firebase:", error);
+                showMessage(`Failed to initialize Firebase. Please check your console for errors.`, false, true);
+                return; // Stop execution if Firebase initialization fails
+            }
 
             // Authenticate user
             onAuthStateChanged(window.auth, async (user) => {
@@ -2639,7 +2690,7 @@
 
                     showView('recommendations-view'); // Display initial view after data is potentially loaded
                 } else {
-                    // Sign in anonymously if not already authenticated
+                    // Sign in anonymously if not already authenticated or if Canvas token is not available
                     if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                         try {
                             await signInWithCustomToken(window.auth, __initial_auth_token);
@@ -2649,6 +2700,7 @@
                             await signInAnonymously(window.auth);
                         }
                     } else {
+                        // For GitHub deployment, always sign in anonymously if no Canvas token
                         await signInAnonymously(window.auth);
                     }
                 }
