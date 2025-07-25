@@ -390,7 +390,7 @@
 
                 // Filter out books without covers
                 if (!data.covers || data.covers.length === 0) {
-                    console.log(`DEBUG: Skipping "${data.title}" - no cover image available.`);
+                    console.log(`DEBUG: Skipping "${data.title}" (workKey: ${workKey}) - no cover image available.`);
                     return null;
                 }
 
@@ -399,7 +399,7 @@
 
                 // Filter out books older than MIN_PUBLISH_YEAR
                 if (firstPublishYear && firstPublishYear < MIN_PUBLISH_YEAR) {
-                    console.log(`DEBUG: Skipping "${data.title}" - published in ${firstPublishYear}, which is older than ${MIN_PUBLISH_YEAR}.`);
+                    console.log(`DEBUG: Skipping "${data.title}" (workKey: ${workKey}) - published in ${firstPublishYear}, which is older than ${MIN_PUBLISH_YEAR}.`);
                     return null;
                 }
 
@@ -1271,6 +1271,9 @@
                 const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk" || "";
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
+                console.log("DEBUG: LLM Evaluation Prompt:", prompt); // Log the prompt
+                console.log("DEBUG: LLM Evaluation Payload:", JSON.stringify(payload, null, 2)); // Log the payload
+
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1281,6 +1284,7 @@
                 let rawResponseText = '';
                 try {
                     rawResponseText = await response.text();
+                    console.log("DEBUG: Raw LLM Evaluation Response Text:", rawResponseText); // Log raw response
                     if (!rawResponseText || rawResponseText.trim() === '') {
                         throw new Error("Empty or whitespace response from Gemini API.");
                     }
@@ -1301,6 +1305,7 @@
                     result.candidates[0].content.parts.length > 0) {
                     const jsonString = result.candidates[0].content.parts[0].text;
                     const evaluation = JSON.parse(jsonString);
+                    console.log("DEBUG: Parsed LLM Evaluation:", evaluation); // Log parsed evaluation
                     return evaluation;
                 } else {
                     console.error("ERROR: LLM evaluation response structure unexpected or no candidates:", result);
@@ -1357,7 +1362,7 @@
                                     first_publish_year: firstPublishYear // Use cleaned firstPublishYear
                                 });
                             } else {
-                                console.log(`DEBUG: Skipping trending candidate "${doc.title}" - missing essential data, cover, or too old for initial consideration.`);
+                                console.log(`DEBUG: Skipping trending candidate "${doc.title}" (workKey: ${doc.key}) - missing essential data, cover, or too old for initial consideration.`);
                             }
                         }
                     }
@@ -1366,6 +1371,7 @@
                     console.error(`ERROR: Error fetching trending candidates from Open Library (page ${i + 1}):`, error);
                 }
             }
+            console.log("getTrendingOpenLibraryCandidates: Found", lightweightCandidates.length, "candidates.");
             return lightweightCandidates;
         }
 
@@ -1502,14 +1508,18 @@
                     // Get lightweight bookshelf-based candidates
                     const bookshelfCandidates = await getBookshelfBasedRecommendations(OPEN_LIBRARY_LIGHTWEIGHT_LIMIT);
                     allLightweightCandidates = allLightweightCandidates.concat(bookshelfCandidates);
+                    console.log(`generateRecommendations: Bookshelf candidates found: ${bookshelfCandidates.length}`);
 
                     // Get lightweight AI-powered candidates
                     const aiCandidates = await getAIPoweredRecommendations();
                     allLightweightCandidates = allLightweightCandidates.concat(aiCandidates);
+                    console.log(`generateRecommendations: AI candidates found: ${aiCandidates.length}`);
 
                     // Get lightweight trending candidates
                     const trendingCandidates = await getTrendingOpenLibraryCandidates(OPEN_LIBRARY_LIGHTWEIGHT_LIMIT);
                     allLightweightCandidates = allLightweightCandidates.concat(trendingCandidates);
+                    console.log(`generateRecommendations: Trending candidates found: ${trendingCandidates.length}`);
+
 
                     // Deduplicate lightweight candidates by workKey
                     const uniqueLightweightCandidates = [];
@@ -1588,8 +1598,10 @@
                                 selectedAuthorsInCurrentBatch.add(fullBookDetails.author.toLowerCase());
                                 console.log(`generateRecommendations: Added "${fullBookDetails.title}" to final recommendations (current count: ${finalRecommendations.length}).`);
                             } else {
-                                console.log(`generateRecommendations: Skipping "${fullBookDetails.title}" - score ${score} below threshold ${MIN_PUBLISH_YEAR}.`);
+                                console.log(`generateRecommendations: Skipping "${fullBookDetails.title}" - score ${score} below threshold ${MIN_SCORE_THRESHOLD}.`);
                             }
+                        } else {
+                            console.log(`generateRecommendations: Skipping lightweight book (workKey: ${lightweightBook.workKey}) - fetchBookDetailsFromOpenLibrary returned null.`);
                         }
                     }
                 }
@@ -1607,6 +1619,7 @@
                     for (const book of finalRecommendations.slice(0, TARGET_BOOKS)) {
                         // Check against current recommended list before adding to avoid duplicates that might have been added by another admin session
                         const isDuplicateInRecommended = window.recommendedBooks.some(b => b.workKey === book.workKey);
+                        console.log(`generateRecommendations: Processing "${book.title}" (workKey: ${book.workKey}). Is duplicate in recommended: ${isDuplicateInRecommended}`);
 
                         if (!isDuplicateInRecommended) {
                             if (book.score >= AUTO_APPROVE_SCORE_THRESHOLD) {
@@ -1621,7 +1634,7 @@
                                 console.log(`generateRecommendations: "${book.title}" (score: ${book.score}) added to pending for approval.`);
                             }
                         } else {
-                            console.log(`generateRecommendations: Skipping "${book.title}" - already in recommended_books.`);
+                            console.log(`generateRecommendations: Skipping "${book.title}" - already in recommended_books (duplicate check).`);
                         }
                     }
 
@@ -1719,7 +1732,7 @@
                                     first_publish_year: firstPublishYear // Use cleaned firstPublishYear
                                 });
                             } else {
-                                console.log(`DEBUG: Skipping bookshelf-based candidate "${doc.title}" - missing essential data, cover, or too old for initial consideration.`);
+                                console.log(`DEBUG: Skipping bookshelf-based candidate "${doc.title}" (workKey: ${doc.key}) - missing essential data, cover, or too old for initial consideration.`);
                             }
                         }
                     }
@@ -1810,6 +1823,7 @@
 
                 try {
                     rawResponseText = await response.text();
+                    console.log("DEBUG: Raw LLM AI Recommendations Response Text:", rawResponseText); // Log raw response
                     if (!rawResponseText || rawResponseText.trim() === '') {
                         throw new Error("Empty or whitespace response from Gemini API.");
                     }
@@ -1876,7 +1890,7 @@
                                         first_publish_year: firstPublishYear // Use cleaned firstPublishYear
                                     });
                                 } else {
-                                    console.log(`DEBUG: Skipping AI-suggested book "${doc.title}" - missing essential data, cover, or too old for initial consideration.`);
+                                    console.log(`DEBUG: Skipping AI-suggested book "${doc.title}" (workKey: ${doc.key}) - missing essential data, cover, or too old for initial consideration.`);
                                 }
                             } else {
                                 console.log(`DEBUG: No Open Library match found for AI-suggested book: "${query}"`);
@@ -2472,6 +2486,8 @@
                         viewElement.classList.add('hidden');
                         console.log(`showView: Added 'hidden' to ${id}`);
                     }
+                } else {
+                    console.error(`ERROR: View element with ID '${id}' not found during showView.`);
                 }
             });
 
@@ -2753,7 +2769,7 @@
                         };
                         console.log(`seedInitialBookshelf: Details fetched for "${bookDetails.title}". Attempting to save to bookshelf.`);
                         await setBookInFirestore(bookToSave, 'bookshelf_books');
-                        console.log(`seedInitialBookshelf: Successfully seeded "${bookDetails.title}" as 'loved' on bookshelf.`);
+                        console.log(`seedInitialBookshelf: Successfully seeded "${bookToSave.title}" as 'loved' on bookshelf.`);
                     } else {
                         console.warn(`seedInitialBookshelf: Failed to fetch details for seeding book: ${bookInfo.url}. Skipping.`);
                     }
@@ -2821,7 +2837,6 @@
             // Set admin panel visibility based on login type
             setAdminUIVisibility(isAdminLogin);
 
-            // The splash screen will transition to main-content and show recommendations view
             // The "Ready for More Recommendations!" button is now always visible for logged-in users.
             document.getElementById('request-more-recs-container')?.classList.remove('hidden');
             console.log("initializeAppContent: 'Ready for More Recommendations' button visible.");
@@ -2862,11 +2877,19 @@
             }
 
             // Explicitly hide elements on load to ensure correct initial state
+            // ONLY HIDE THE VIEWS, NOT THE MAIN CONTENT CONTAINER
             document.getElementById('admin-search-panel')?.classList.add('hidden');
             document.getElementById('nav-flagged-books')?.classList.add('hidden');
             document.getElementById('nav-admin-approved-books')?.classList.add('hidden');
             document.getElementById('request-more-recs-container')?.classList.add('hidden'); // Initially hidden until Beth logs in
-            document.getElementById('main-content')?.classList.add('hidden');
+            
+            // Ensure all main content sections are hidden initially, but the main-content div is visible
+            document.getElementById('recommendations-view')?.classList.add('hidden');
+            document.getElementById('bookshelf-view')?.classList.add('hidden');
+            document.getElementById('beth-deleted-books-view')?.classList.add('hidden');
+            document.getElementById('flagged-books-view')?.classList.add('hidden');
+            document.getElementById('admin-approved-books-view')?.classList.add('hidden');
+
             document.getElementById('splash-screen')?.classList.add('hidden'); // New splash screen, hidden by default
             document.getElementById('login-screen')?.classList.remove('hidden'); // Show login screen initially
             console.log("DOMContentLoaded: Initial UI state set.");
@@ -2975,7 +2998,7 @@
             // Splash Screen Continue Button
             document.getElementById('splash-continue-button')?.addEventListener('click', () => {
                 document.getElementById('splash-screen')?.classList.add('hidden');
-                document.getElementById('main-content')?.classList.remove('hidden');
+                document.getElementById('main-content')?.classList.remove('hidden'); // Ensure main-content is visible
                 showView('recommendations-view'); // Transition to main recommendations view
             });
 
@@ -3392,6 +3415,12 @@
     </style>
 </head>
 <body class="antialiased">
+    <!-- Message box for pick confirmation and other messages -->
+    <div id="message-box" class="message-box">
+        <p id="message-text"></p>
+        <button id="message-box-close" class="mt-4 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700">Close</button>
+    </div>
+
     <!-- Login Screen -->
     <div id="login-screen" class="min-h-screen flex items-center justify-center bg-gray-100">
         <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-sm text-center">
@@ -3415,8 +3444,8 @@
         </button>
     </div>
 
-    <!-- Main Content Area (Hidden until login) -->
-    <div id="main-content" class="min-h-screen flex flex-col hidden">
+    <!-- Main Content Area (Now always in DOM, its children are hidden) -->
+    <div id="main-content" class="min-h-screen flex flex-col">
         <!-- Header Section -->
         <header class="bg-gradient-to-r from-emerald-800 to-gray-900 text-white shadow-lg py-6 px-4 sm:px-6 lg:px-8">
             <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center">
@@ -3431,7 +3460,7 @@
                 <button id="nav-recommendations" class="nav-button active">Recommended Reads</button>
                 <button id="nav-bookshelf" class="nav-button">My Bookshelf</button>
                 <!-- New tab for Beth's deleted books -->
-                <button id="nav-beth-deleted-books" class="nav-button">Deleted Books</button>
+                <button id="nav-beth-deleted-books" class="nav-button hidden">Deleted Books</button>
                 <!-- Admin-only tabs, initially hidden and controlled by PIN login -->
                 <button id="nav-flagged-books" class="nav-button hidden">Flagged Books</button>
                 <button id="nav-admin-approved-books" class="nav-button hidden">Admin Approved</button>
@@ -3548,21 +3577,4 @@
                 </div>
                 <p id="no-admin-approved-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
             </div>
-        </section>
-
-        <!-- Footer Section -->
-        <footer class="bg-gray-800 text-gray-300 py-8 px-4 sm:px-6 lg:px-8 mt-auto">
-            <div class="max-w-7xl mx-auto text-center">
-                <p>&copy; <span id="current-year"></span> Beth's Book Club. All rights reserved.</p>
-                <p class="text-sm mt-2">Designed with ❤️ for you.</p>
-            </div>
-        </footer>
-    </div>
-
-    <!-- Message box for pick confirmation and other messages -->
-    <div id="message-box" class="message-box">
-        <p id="message-text"></p>
-        <button id="message-box-close" class="mt-4 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700">Close</button>
-    </div>
-</body>
-</html>
+        </secti
