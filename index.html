@@ -13,15 +13,15 @@
 
         // Import the functions you need from the SDKs you need
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js";
+        import { getAuth } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js"; // Keep getAuth for internal Firebase use if needed, but not for login
         import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-analytics.js"; // Added analytics import
 
         // Global Firebase variables (assigned after initialization)
         window.firebaseApp = null;
         window.db = null;
-        window.auth = null;
-        window.adminUserId = null; // This will store the authenticated user's ID (your ID)
+        window.auth = null; // Still initialized, but not used for user login in this PIN-based setup
+        window.adminUserId = null; // This will store the fixed user ID for Beth
         window.analytics = null; // Added analytics global
 
         // Global data stores (will be updated by Firestore listeners)
@@ -32,6 +32,12 @@
         window.adminAlerts = [];
         window.adminPendingRecommendations = [];
         window.adminApprovedBooks = [];
+
+        // Fixed PINs for login
+        const BETH_PIN = '7288'; // Corrected Beth's PIN
+        const ADMIN_PIN = '2384'; // Admin PIN
+        // Fixed user ID for Beth's data in Firestore
+        const BETH_FIREBASE_USER_ID = 'beth_unique_book_club_id_7288';
 
         // Keys for local storage migration flags (re-introduced for migration logic)
         const RECOMMENDED_BOOKS_KEY = 'recommendedBooks';
@@ -58,8 +64,10 @@
         // Helper function to get collection path based on whether it's public or user-specific
         function getCollectionPath(collectionName, userId = null) {
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            if (userId) {
-                return `artifacts/${appId}/users/${userId}/${collectionName}`;
+            // If userId is explicitly provided, use it. Otherwise, default to the fixed Beth's ID.
+            const effectiveUserId = userId || window.adminUserId; // Use window.adminUserId as fallback
+            if (effectiveUserId) {
+                return `artifacts/${appId}/users/${effectiveUserId}/${collectionName}`;
             } else {
                 return `artifacts/${appId}/public/data/${collectionName}`;
             }
@@ -115,10 +123,18 @@
         async function setBookInFirestore(book, collectionName, userId = null) {
             if (!window.db) { console.error("Firestore DB not initialized."); return; }
             if (!book.workKey) { console.error("Book missing workKey, cannot save to Firestore:", book); return; }
+            // Ensure userId is provided for user-specific collections
+            const userSpecificCollections = ['flagged_books', 'admin_alerts', 'admin_pending_recs', 'admin_approved_books', 'negative_feedback'];
+            if (userSpecificCollections.includes(collectionName) && userId === null) {
+                // For this PIN-based system, all admin-specific data will use BETH_FIREBASE_USER_ID
+                userId = window.adminUserId;
+            }
+
 
             try {
-                const docRef = doc(window.db, getCollectionPath(collectionName, userId), book.workKey);
+                const docRef = doc(window.db, getCollectionPath(collectionName, userId), book.workKey); // Pass book.workKey as doc ID
                 await setDoc(docRef, book);
+                console.log(`Firestore: Book "${book.title}" added/updated in "${collectionName}" with workKey: ${book.workKey}`);
             } catch (e) {
                 console.error(`Error setting book in ${collectionName}:`, e);
             }
@@ -133,10 +149,17 @@
         async function deleteBookFromFirestore(workKey, collectionName, userId = null) {
             if (!window.db) { console.error("Firestore DB not initialized."); return; }
             if (!workKey) { console.error("Missing workKey, cannot delete from Firestore."); return; }
+            // Ensure userId is provided for user-specific collections
+            const userSpecificCollections = ['flagged_books', 'admin_alerts', 'admin_pending_recs', 'admin_approved_books', 'negative_feedback'];
+            if (userSpecificCollections.includes(collectionName) && userId === null) {
+                // For this PIN-based system, all admin-specific data will use BETH_FIREBASE_USER_ID
+                userId = window.adminUserId;
+            }
 
             try {
-                const docRef = doc(window.db, getCollectionPath(collectionName, userId), workKey);
+                const docRef = doc(window.db, getCollectionPath(collectionName, userId), workKey); // Pass workKey as doc ID
                 await deleteDoc(docRef);
+                console.log(`Firestore: Book with workKey ${workKey} deleted from "${collectionName}".`);
             } catch (e) {
                 console.error(`Error deleting book from ${collectionName}:`, e);
             }
@@ -148,11 +171,13 @@
          * @returns {Promise<Object|null>} A promise that resolves to the added alert object with its Firestore ID, or null on error.
          */
         async function addAdminAlertToFirestore(alert) {
-            if (!window.db || !window.adminUserId) { console.error("Firestore DB or Admin User ID not initialized."); return null; }
+            if (!window.db) { console.error("Firestore DB not initialized for alert."); return null; }
+            if (!window.adminUserId) { console.error("Admin User ID not initialized for alert. Cannot add alert."); return null; }
             try {
                 const collectionRef = collection(window.db, getCollectionPath('admin_alerts', window.adminUserId));
                 // Use addDoc for alerts and capture the Firestore-generated ID
                 const docRef = await addDoc(collectionRef, alert);
+                console.log(`Firestore: Admin alert added with ID: ${docRef.id}`, alert);
                 return { id: docRef.id, ...alert }; // Return alert with its new Firestore ID
             } catch (e) {
                 console.error("Error adding admin alert to Firestore:", e);
@@ -165,10 +190,12 @@
          * @param {string} docId - The document ID of the alert to delete.
          */
         async function deleteAdminAlertFromFirestore(docId) {
-            if (!window.db || !window.adminUserId) { console.error("Firestore DB or Admin User ID not initialized."); return; }
+            if (!window.db) { console.error("Firestore DB not initialized for alert deletion."); return; }
+            if (!window.adminUserId) { console.error("Admin User ID not initialized for alert deletion. Cannot delete alert."); return; }
             try {
                 const docRef = doc(window.db, getCollectionPath('admin_alerts', window.adminUserId), docId);
                 await deleteDoc(docRef);
+                console.log(`Firestore: Admin alert with ID ${docId} deleted.`);
             } catch (e) {
                 console.error(`Error deleting admin alert from Firestore (ID: ${docId}):`, e);
             }
@@ -179,11 +206,13 @@
          * @param {string} term - The term to add.
          */
         async function addNegativeFeedbackToFirestore(term) {
-            if (!window.db || !window.adminUserId) { console.error("Firestore DB or Admin User ID not initialized."); return; }
+            if (!window.db) { console.error("Firestore DB not initialized for negative feedback."); return; }
+            if (!window.adminUserId) { console.error("Admin User ID not initialized for negative feedback. Cannot add term."); return; }
             try {
                 const collectionRef = collection(window.db, getCollectionPath('negative_feedback', window.adminUserId));
                 // Use the term itself as the document ID for uniqueness
                 await setDoc(doc(collectionRef, term), { term: term });
+                console.log(`Firestore: Negative feedback term "${term}" added.`);
             } catch (e) {
                 console.error("Error adding negative feedback to Firestore:", e);
             }
@@ -195,8 +224,12 @@
          * @returns {Promise<Array<string>>} An array of strings (feedback terms).
          */
         async function getNegativeFeedbackFromFirestore() {
-            if (!window.db || !window.adminUserId) {
-                console.warn("Firestore DB or Admin User ID not initialized, cannot fetch negative feedback.");
+            if (!window.db) {
+                console.warn("Firestore DB not initialized, cannot fetch negative feedback.");
+                return [];
+            }
+            if (!window.adminUserId) {
+                console.warn("Admin User ID not initialized, cannot fetch negative feedback.");
                 return [];
             }
             try {
@@ -206,6 +239,7 @@
                 querySnapshot.forEach(doc => {
                     feedbackTerms.push(doc.data().term);
                 });
+                console.log("Firestore: Fetched negative feedback terms:", feedbackTerms);
                 return feedbackTerms;
             } catch (e) {
                 console.error("Error fetching negative feedback from Firestore:", e);
@@ -217,56 +251,71 @@
         // --- Firestore Real-time Listeners ---
 
         function setupFirestoreListeners() {
-            if (!window.db || !window.adminUserId) {
-                console.error("Firestore DB or Admin User ID not available for setting up listeners.");
+            if (!window.db) {
+                console.error("Firestore DB not available for setting up listeners.");
                 return;
             }
+            if (!window.adminUserId) {
+                console.error("Admin User ID not available for setting up listeners. User-specific collections will not be listened to.");
+                // We can still set up public listeners, but log the warning.
+            }
+            console.log("Firestore: Setting up real-time listeners...");
 
             // Recommended Books (Public)
             onSnapshot(collection(window.db, getCollectionPath('recommended_books')), (snapshot) => {
                 window.recommendedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Firestore Listener: recommended_books updated.", window.recommendedBooks.length, "books.");
                 displayRecommendedBooks();
             });
 
             // Bookshelf Books (Public)
             onSnapshot(collection(window.db, getCollectionPath('bookshelf_books')), (snapshot) => {
                 window.bookShelfBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Firestore Listener: bookshelf_books updated.", window.bookShelfBooks.length, "books.");
                 displayBookShelfBooks();
             });
 
             // Beth's Deleted Books (Public)
             onSnapshot(collection(window.db, getCollectionPath('beth_deleted_books')), (snapshot) => {
                 window.bethDeletedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                console.log("Firestore Listener: beth_deleted_books updated.", window.bethDeletedBooks.length, "books.");
                 displayBethsDeletedBooks();
             });
 
-            // Flagged Books (Admin Specific)
-            onSnapshot(collection(window.db, getCollectionPath('flagged_books', window.adminUserId)), (snapshot) => {
-                window.flaggedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                displayFlaggedBooks();
-            });
+            // Admin-specific listeners (only if adminUserId is available)
+            if (window.adminUserId) {
+                // Flagged Books (Admin Specific)
+                onSnapshot(collection(window.db, getCollectionPath('flagged_books', window.adminUserId)), (snapshot) => {
+                    window.flaggedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    console.log("Firestore Listener: flagged_books updated.", window.flaggedBooks.length, "books.");
+                    displayFlaggedBooks();
+                });
 
-            // Admin Alerts (Admin Specific)
-            onSnapshot(collection(window.db, getCollectionPath('admin_alerts', window.adminUserId)), (snapshot) => {
-                window.adminAlerts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                displayAdminAlerts();
-            });
+                // Admin Alerts (Admin Specific)
+                onSnapshot(collection(window.db, getCollectionPath('admin_alerts', window.adminUserId)), (snapshot) => {
+                    window.adminAlerts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    console.log("Firestore Listener: admin_alerts updated.", window.adminAlerts.length, "alerts.", window.adminAlerts);
+                    displayAdminAlerts();
+                });
 
-            // Admin Pending Recommendations (Admin Specific)
-            onSnapshot(collection(window.db, getCollectionPath('admin_pending_recs', window.adminUserId)), (snapshot) => {
-                window.adminPendingRecommendations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                // Sort by score in descending order
-                window.adminPendingRecommendations.sort((a, b) => b.score - a.score);
-                console.log("DEBUG: Admin Pending Recommendations Updated:", window.adminPendingRecommendations); // Log for debugging
-                displayAdminPendingRecommendations();
-            });
+                // Admin Pending Recommendations (Admin Specific)
+                onSnapshot(collection(window.db, getCollectionPath('admin_pending_recs', window.adminUserId)), (snapshot) => {
+                    window.adminPendingRecommendations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    // Sort by score in descending order
+                    window.adminPendingRecommendations.sort((a, b) => b.score - a.score);
+                    console.log("Firestore Listener: admin_pending_recs updated.", window.adminPendingRecommendations.length, "recs."); // Log for debugging
+                    displayAdminPendingRecommendations();
+                });
 
-            // Admin Approved Books (Admin Specific)
-            onSnapshot(collection(window.db, getCollectionPath('admin_approved_books', window.adminUserId)), (snapshot) => {
-                window.adminApprovedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                console.log("DEBUG: Admin Approved Books Updated:", window.adminApprovedBooks); // Log for debugging
-                displayAdminApprovedBooks();
-            });
+                // Admin Approved Books (Admin Specific)
+                onSnapshot(collection(window.db, getCollectionPath('admin_approved_books', window.adminUserId)), (snapshot) => {
+                    window.adminApprovedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    console.log("Firestore Listener: admin_approved_books updated.", window.adminApprovedBooks.length, "books."); // Log for debugging
+                    displayAdminApprovedBooks();
+                });
+            } else {
+                console.warn("Skipping setup for user-specific Firestore listeners as adminUserId is not available.");
+            }
         }
 
 
@@ -326,11 +375,14 @@
          * @returns {Promise<Object|null>} A promise that resolves to the book details object or null if not found/filtered.
          */
         async function fetchBookDetailsFromOpenLibrary(workKey) {
-            if (!workKey) return null;
+            if (!workKey) {
+                console.warn(`fetchBookDetailsFromOpenLibrary: No workKey provided.`);
+                return null;
+            }
             try {
                 const response = await fetch(`${OPEN_LIBRARY_WORK_URL}${workKey}.json`);
                 if (!response.ok) {
-                    console.warn(`WARNING: Failed to fetch full details for work ${workKey}: ${response.status}`);
+                    console.warn(`WARNING: Failed to fetch full details for work ${workKey}: ${response.status} - ${response.statusText}`);
                     return null;
                 }
                 const data = await response.json();
@@ -524,44 +576,43 @@
             const bookListContainer = document.getElementById('book-list');
             const noBooksMessage = document.getElementById('no-books-message');
             const recommendedHeading = document.getElementById('recommended-reads-heading');
-            const adminPanel = document.getElementById('admin-search-panel');
-            const isAdminMode = adminPanel && !adminPanel.classList.contains('hidden'); // Check if admin panel is visible
-            const requestMoreRecsContainer = document.getElementById('request-more-recs-container');
+            // Check if the admin panel is currently visible to determine admin mode
+            const isAdminMode = !document.getElementById('admin-search-panel')?.classList.contains('hidden');
+            
+            console.log("displayRecommendedBooks: Called.");
 
             const date = new Date();
             const month = date.toLocaleString('default', { month: 'long' });
             const year = date.getFullYear();
             if (recommendedHeading) {
                 recommendedHeading.textContent = `Recommended Reads (${month} ${year})`;
+                console.log("displayRecommendedBooks: Updated heading.");
             }
 
             if (bookListContainer) {
                 bookListContainer.innerHTML = ''; // Clear existing content
+            } else {
+                console.error("ERROR: 'book-list' element not found. Cannot display recommended books.");
+                return; // Exit if container not found
             }
 
             // Filter out books that are already on the bookshelf (rated 'like', 'love', 'picked', or 'passed')
             const booksToDisplay = window.recommendedBooks.filter(book => book.userRating !== 'like' && book.userRating !== 'love' && book.userRating !== 'picked' && book.userRating !== 'passed');
+            console.log("displayRecommendedBooks: Books to display after filtering:", booksToDisplay.length);
+
 
             if (booksToDisplay.length === 0) {
                 if (noBooksMessage) {
                     noBooksMessage.classList.remove('hidden');
                     noBooksMessage.textContent = "No books recommended yet. New recommendations will be added soon!";
-                }
-                // Show "Request More Recommendations" button only if not in admin mode
-                if (requestMoreRecsContainer) {
-                    if (!isAdminMode) {
-                        requestMoreRecsContainer.classList.remove('hidden');
-                    } else {
-                        requestMoreRecsContainer.classList.add('hidden');
-                    }
+                    console.log("displayRecommendedBooks: Showing no-books-message.");
                 }
             } else {
                 if (noBooksMessage) {
                     noBooksMessage.classList.add('hidden');
+                    console.log("displayRecommendedBooks: Hiding no-books-message.");
                 }
-                if (requestMoreRecsContainer) {
-                    requestMoreRecsContainer.classList.add('hidden'); // Hide if books are present
-                }
+                
                 booksToDisplay.forEach((book, index) => {
                     const bookCard = document.createElement('div');
                     // Apply animation delay for staggered effect
@@ -640,12 +691,24 @@
             // Data is now sourced from window.bookShelfBooks
             const bookshelfListContainer = document.getElementById('bookshelf-list');
             const noBookshelfMessage = document.getElementById('no-bookshelf-message');
-            bookshelfListContainer.innerHTML = ''; // Clear existing content
+            
+            if (bookshelfListContainer) {
+                bookshelfListContainer.innerHTML = ''; // Clear existing content
+            } else {
+                console.error("ERROR: 'bookshelf-list' element not found. Cannot display bookshelf books.");
+                return; // Exit if container not found
+            }
+
+            console.log("displayBookShelfBooks: Called. Books in bookshelf:", window.bookShelfBooks.length);
 
             if (window.bookShelfBooks.length === 0) {
-                noBookshelfMessage.classList.remove('hidden');
+                if (noBookshelfMessage) {
+                    noBookshelfMessage.classList.remove('hidden');
+                }
             } else {
-                noBookshelfMessage.classList.add('hidden');
+                if (noBookshelfMessage) {
+                    noBookshelfMessage.classList.add('hidden');
+                }
                 window.bookShelfBooks.forEach((book, index) => {
                     const bookCard = document.createElement('div');
                     // Apply animation delay for staggered effect and add new class for smaller size
@@ -739,12 +802,24 @@
             // Data is now sourced from window.bethDeletedBooks
             const bethDeletedBooksListContainer = document.getElementById('beth-deleted-books-list');
             const noBethDeletedBooksMessage = document.getElementById('no-beth-deleted-books-message');
-            bethDeletedBooksListContainer.innerHTML = ''; // Clear existing content
+            
+            if (bethDeletedBooksListContainer) {
+                bethDeletedBooksListContainer.innerHTML = ''; // Clear existing content
+            } else {
+                console.error("ERROR: 'beth-deleted-books-list' element not found. Cannot display Beth's deleted books.");
+                return; // Exit if container not found
+            }
+
+            console.log("displayBethsDeletedBooks: Called. Books in deleted list:", window.bethDeletedBooks.length);
 
             if (window.bethDeletedBooks.length === 0) {
-                noBethDeletedBooksMessage.classList.remove('hidden');
+                if (noBethDeletedBooksMessage) {
+                    noBethDeletedBooksMessage.classList.remove('hidden');
+                }
             } else {
-                noBethDeletedBooksMessage.classList.add('hidden');
+                if (noBethDeletedBooksMessage) {
+                    noBethDeletedBooksMessage.classList.add('hidden');
+                }
                 window.bethDeletedBooks.forEach((book, index) => {
                     const bookCard = document.createElement('div');
                     bookCard.className = `book-card bookshelf-card-small bg-white rounded-lg shadow-md overflow-hidden flex flex-col`;
@@ -783,12 +858,24 @@
             // Data is now sourced from window.flaggedBooks
             const flaggedBooksListContainer = document.getElementById('flagged-books-list');
             const noFlaggedBooksMessage = document.getElementById('no-flagged-books-message');
-            flaggedBooksListContainer.innerHTML = ''; // Clear existing content
+            
+            if (flaggedBooksListContainer) {
+                flaggedBooksListContainer.innerHTML = ''; // Clear existing content
+            } else {
+                console.error("ERROR: 'flagged-books-list' element not found. Cannot display flagged books.");
+                return; // Exit if container not found
+            }
+
+            console.log("displayFlaggedBooks: Called. Books in flagged list:", window.flaggedBooks.length);
 
             if (window.flaggedBooks.length === 0) {
-                noFlaggedBooksMessage.classList.remove('hidden');
+                if (noFlaggedBooksMessage) {
+                    noFlaggedBooksMessage.classList.remove('hidden');
+                }
             } else {
-                noFlaggedBooksMessage.classList.add('hidden');
+                if (noFlaggedBooksMessage) {
+                    noFlaggedBooksMessage.classList.add('hidden');
+                }
                 window.flaggedBooks.forEach((book, index) => {
                     const bookCard = document.createElement('div');
                     bookCard.className = `book-card bookshelf-card-small bg-white rounded-lg shadow-md overflow-hidden flex flex-col`;
@@ -927,7 +1014,6 @@
                     await setBookInFirestore(newBook, 'recommended_books');
                     showMessage(`"${newBook.title}" has been manually added to Beth's Book Club!`, false, false);
                     urlInput.value = ''; // Clear input
-                    toggleAdminSearchPanel(); // Hide admin panel after adding
                     showView('recommendations-view'); // Ensure we are on the recommendations view
                 } else {
                     showMessage(`"${newBook.title}" is already in Beth's Book Club!`, false, false);
@@ -996,11 +1082,12 @@
             const bookToPass = window.recommendedBooks.find(book => book.workKey === bookWorkKey);
 
             if (bookToPass) {
+                console.log(`handlePassBook: Beth passed on book with workKey: ${bookWorkKey}`);
                 // Send alert BEFORE modifying bookToPass, as sendAdminAlert uses current book data
                 await sendAdminAlert('passed_book', bookWorkKey); 
                 
                 // Updated message for Beth: no reference to admin-only tab
-                showMessage(`"${bookToPass.title}" has been passed. You won't see this recommendation again.`, false, false);
+                showMessage(`You've passed on "${bookToPass.title}". You won't see this recommendation again.`, false, false);
                 
                 await deleteBookFromFirestore(bookWorkKey, 'recommended_books'); // Remove from recommended
                 bookToPass.userRating = 'passed'; // Mark as passed
@@ -1180,7 +1267,8 @@
                         }
                     }
                 };
-                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; // API Key is set to empty string for Canvas to inject its own.
+                // Use the provided API key or fallback to empty string for Canvas
+                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk" || "";
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -1382,6 +1470,11 @@
             if (message) message.classList.add('hidden');
             if (loader) loader.style.display = 'block';
             showMessage('Generating recommendations... This might take a moment.', true, false);
+            console.log("generateRecommendations: Initiated.");
+
+            // Send admin alert that recommendation generation has started
+            console.log("generateRecommendations: Sending 'recommendations_generation_started' alert.");
+            await sendAdminAlert('recommendations_generation_started');
 
             const TARGET_BOOKS = 6;
             const MIN_SCORE_THRESHOLD = 50; // Minimum score for a book to be recommended
@@ -1405,6 +1498,7 @@
             try {
                 // Phase 1: Collect lightweight candidates from various sources
                 for (let attempt = 0; attempt < MAX_CANDIDATE_FETCH_ATTEMPTS; attempt++) {
+                    console.log(`generateRecommendations: Fetching lightweight candidates - Attempt ${attempt + 1}`);
                     // Get lightweight bookshelf-based candidates
                     const bookshelfCandidates = await getBookshelfBasedRecommendations(OPEN_LIBRARY_LIGHTWEIGHT_LIMIT);
                     allLightweightCandidates = allLightweightCandidates.concat(bookshelfCandidates);
@@ -1427,8 +1521,11 @@
                         }
                     }
                     allLightweightCandidates = uniqueLightweightCandidates;
+                    console.log(`generateRecommendations: Attempt ${attempt + 1}, collected ${allLightweightCandidates.length} unique lightweight candidates.`);
+
 
                     if (allLightweightCandidates.length >= TARGET_BOOKS * 5) { // Collect a larger buffer for stricter filtering
+                        console.log("generateRecommendations: Enough lightweight candidates collected, breaking fetch loop.");
                         break;
                     }
                 }
@@ -1438,6 +1535,7 @@
                     const j = Math.floor(Math.random() * (i + 1));
                     [allLightweightCandidates[i], allLightweightCandidates[j]] = [allLightweightCandidates[j], allLightweightCandidates[i]];
                 }
+                console.log("generateRecommendations: All lightweight candidates shuffled.");
 
                 // Phase 2: Fetch full details and apply scoring/filters until TARGET_BOOKS are found
                 let finalRecommendations = [];
@@ -1447,11 +1545,17 @@
                 while (finalRecommendations.length < TARGET_BOOKS && currentCandidateIndex < allLightweightCandidates.length) {
                     const batchToProcess = allLightweightCandidates.slice(currentCandidateIndex, currentCandidateIndex + FULL_DETAIL_FETCH_BATCH_SIZE);
                     currentCandidateIndex += FULL_DETAIL_FETCH_BATCH_SIZE;
+                    console.log(`generateRecommendations: Processing batch of ${batchToProcess.length} candidates, starting from index ${currentCandidateIndex - FULL_DETAIL_FETCH_BATCH_SIZE}.`);
+
 
                     for (const lightweightBook of batchToProcess) {
-                        if (finalRecommendations.length >= TARGET_BOOKS) break;
+                        if (finalRecommendations.length >= TARGET_BOOKS) {
+                            console.log("generateRecommendations: Target number of recommendations reached, stopping batch processing.");
+                            break;
+                        }
 
                         if (processedWorkKeys.has(lightweightBook.workKey)) {
+                            console.log(`generateRecommendations: Skipping ${lightweightBook.title} (workKey: ${lightweightBook.workKey}) - already processed.`);
                             continue;
                         }
 
@@ -1460,6 +1564,7 @@
 
                         if (fullBookDetails) { // fullBookDetails will be null if it failed any internal filters (cover, year)
                             if (existingBookWorkKeys.has(fullBookDetails.workKey)) {
+                                console.log(`generateRecommendations: Skipping ${fullBookDetails.title} (workKey: ${fullBookDetails.workKey}) - already exists in a list.`);
                                 continue;
                             }
 
@@ -1467,6 +1572,7 @@
                             const lovedBooks = window.bookShelfBooks.filter(book => book.userRating === 'love');
                             const likedBooks = window.bookShelfBooks.filter(book => book.userRating === 'like');
                             const score = calculateBookScore(fullBookDetails, lovedBooks, likedBooks, selectedAuthorsInCurrentBatch);
+                            console.log(`generateRecommendations: Scored "${fullBookDetails.title}" (workKey: ${fullBookDetails.workKey}) with score: ${score}`);
 
                             // Only add if score is high enough (after deprioritization)
                             if (score >= MIN_SCORE_THRESHOLD) {
@@ -1480,6 +1586,9 @@
                                     summary: evaluation.summary // Store summary as well
                                 });
                                 selectedAuthorsInCurrentBatch.add(fullBookDetails.author.toLowerCase());
+                                console.log(`generateRecommendations: Added "${fullBookDetails.title}" to final recommendations (current count: ${finalRecommendations.length}).`);
+                            } else {
+                                console.log(`generateRecommendations: Skipping "${fullBookDetails.title}" - score ${score} below threshold ${MIN_PUBLISH_YEAR}.`);
                             }
                         }
                     }
@@ -1487,6 +1596,7 @@
 
                 // Sort recommendations by score in descending order
                 finalRecommendations.sort((a, b) => b.score - a.score);
+                console.log("generateRecommendations: Final recommendations sorted by score:", finalRecommendations);
 
                 if (loader) loader.style.display = 'none';
 
@@ -1503,11 +1613,15 @@
                                 // Auto-approve: add directly to recommended_books
                                 await setBookInFirestore(book, 'recommended_books');
                                 autoApprovedCount++;
+                                console.log(`generateRecommendations: Auto-approved "${book.title}" (score: ${book.score}).`);
                             } else {
                                 // Requires admin approval: add to admin_pending_recs
                                 await setBookInFirestore(book, 'admin_pending_recs', window.adminUserId);
                                 pendingApprovalCount++;
+                                console.log(`generateRecommendations: "${book.title}" (score: ${book.score}) added to pending for approval.`);
                             }
+                        } else {
+                            console.log(`generateRecommendations: Skipping "${book.title}" - already in recommended_books.`);
                         }
                     }
 
@@ -1546,6 +1660,7 @@
             const likedBooks = window.bookShelfBooks.filter(book => book.userRating === 'like');
 
             if (lovedBooks.length === 0 && likedBooks.length === 0) {
+                console.log("getBookshelfBasedRecommendations: No loved or liked books to base recommendations on.");
                 return [];
             }
 
@@ -1567,7 +1682,11 @@
             // Fallback to general genre keywords if no specific bookshelf queries are generated
             if (queries.size === 0) {
                 BETH_GENRE_KEYWORDS.forEach(genre => queries.add(genre));
+                console.log("getBookshelfBasedRecommendations: Falling back to general genre keywords for queries.");
+            } else {
+                console.log("getBookshelfBasedRecommendations: Generated queries from bookshelf:", Array.from(queries));
             }
+
 
             for (const q of Array.from(queries)) {
                 const fullQuery = `${q} AND language:eng`;
@@ -1609,6 +1728,7 @@
                     console.error(`ERROR: Error fetching Open Library sub-query for "${fullQuery}":`, error);
                 }
             }
+            console.log("getBookshelfBasedRecommendations: Found", lightweightCandidates.length, "candidates.");
             return lightweightCandidates;
         }
 
@@ -1672,11 +1792,12 @@
                         }
                     }
                 };
-                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; // API Key is set to empty string for Canvas to inject its own.
+                // Use the provided API key or fallback to empty string for Canvas
+                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk" || "";
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
-                console.log("DEBUG: Sending prompt to Gemini API:", prompt); // Log the prompt
-                console.log("DEBUG: Sending payload to Gemini API:", payload); // Log the payload
+                console.log("DEBUG: Sending prompt to Gemini API for AI recommendations:", prompt); // Log the prompt
+                console.log("DEBUG: Sending payload to Gemini API for AI recommendations:", payload); // Log the payload
 
                 const response = await fetch(apiUrl, {
                     method: 'POST',
@@ -1723,6 +1844,7 @@
 
                     try {
                         const parsedRecommendations = JSON.parse(jsonString);
+                        console.log("DEBUG: Parsed AI recommendations:", parsedRecommendations);
 
                         for (const rec of parsedRecommendations) {
                             const query = `${rec.title} ${rec.author}`;
@@ -1776,6 +1898,7 @@
                 console.error('ERROR: Error calling Gemini API for insight (network/fetch issue):', error);
                 showMessage('Failed to get AI recommendations. Please check your network connection or API key.', false, false);
             }
+            console.log("getAIPoweredRecommendations: Found", aiLightweightCandidates.length, "candidates.");
             return aiLightweightCandidates;
         }
 
@@ -1861,7 +1984,8 @@
                 let chatHistory = [];
                 chatHistory.push({ role: "user", parts: [{ text: prompt }] });
                 const payload = { contents: chatHistory };
-                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk"; // API Key is set to empty string for Canvas to inject its own.
+                // Use the provided API key or fallback to empty string for Canvas
+                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk" || "";
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
                 const response = await fetch(apiUrl, {
@@ -1954,9 +2078,9 @@
                 const evaluation = await getAIProsConsSummary(bookDetails);
 
                 let evaluationHtml = `
-                    <h3 class="text-xl font-bold mb-2">Evaluation for "${title}" by ${author}</h3>
+                    <h3 class="text-xl font-bold mb-2">Evaluation for "${escapeHtmlAttribute(title)}" by ${escapeHtmlAttribute(author)}</h3>
                     <p class="text-lg font-semibold mb-4">Internal Score: <span class="text-emerald-600">${internalScore}/100</span></p>
-                    <p class="mb-4">${evaluation.summary}</p>
+                    <p class="mb-4">${escapeHtmlAttribute(evaluation.summary)}</p>
                     <div class="mb-4">
                         <h4 class="font-semibold text-green-700">Pros:</h4>
                         <ul class="list-disc list-inside text-left">
@@ -2008,50 +2132,44 @@
         }
 
 
-        // --- Admin Panel Toggle Function ---
         /**
-         * Toggles the visibility of the admin search panel and related elements.
-         * Also refreshes relevant display sections.
+         * Controls the visibility of admin-specific UI elements.
+         * This function is called during `initializeAppContent` based on the login PIN.
+         * @param {boolean} showAdmin - True to show admin elements, false to hide them.
          */
-        function toggleAdminSearchPanel() {
+        function setAdminUIVisibility(showAdmin) {
             const adminPanel = document.getElementById('admin-search-panel');
             const navFlaggedBooks = document.getElementById('nav-flagged-books');
             const navAdminApprovedBooks = document.getElementById('nav-admin-approved-books');
-            const requestMoreRecsContainer = document.getElementById('request-more-recs-container');
 
-            // Add null checks for robustness
-            if (!adminPanel) { console.error("ERROR: admin-search-panel not found during toggle."); return; }
-            if (!navFlaggedBooks) { console.error("ERROR: nav-flagged-books not found during toggle."); return; }
-            if (!navAdminApprovedBooks) { console.error("ERROR: nav-admin-approved-books not found during toggle."); return; }
-            if (!requestMoreRecsContainer) { console.error("ERROR: request-more-recs-container not found during toggle."); return; }
-            
-            adminPanel.classList.toggle('hidden');
-            const isAdminModeNow = !adminPanel.classList.contains('hidden');
-            navFlaggedBooks.classList.toggle('hidden', !isAdminModeNow); // Hide if not in admin mode
-            navAdminApprovedBooks.classList.toggle('hidden', !isAdminModeNow); // Hide if not in admin mode
-            requestMoreRecsContainer.classList.toggle('hidden', isAdminModeNow); // Hide if in admin mode
+            if (adminPanel) adminPanel.classList.toggle('hidden', !showAdmin);
+            if (navFlaggedBooks) navFlaggedBooks.classList.toggle('hidden', !showAdmin);
+            if (navAdminApprovedBooks) navAdminApprovedBooks.classList.toggle('hidden', !showAdmin);
 
-            // Clear search results and message when toggling
+            console.log(`setAdminUIVisibility: Admin panel and navigation set to ${showAdmin ? 'visible' : 'hidden'}.`);
+
+            // Clear search results and message when admin panel visibility changes
             const searchResults = document.getElementById('search-results');
             const searchInput = document.getElementById('search-input');
             const manualAddUrlInput = document.getElementById('manual-add-url-input');
             const evaluateBookUrlInput = document.getElementById('evaluate-book-url-input');
             const searchMessage = document.getElementById('search-message');
 
-            // Add null checks for these elements as well before accessing properties
             if (searchResults) searchResults.innerHTML = '';
             if (searchInput) searchInput.value = '';
             if (manualAddUrlInput) manualAddUrlInput.value = '';
             if (evaluateBookUrlInput) evaluateBookUrlInput.value = '';
             if (searchMessage) searchMessage.classList.add('hidden');
 
-
             // Re-render relevant sections
-            displayRecommendedBooks();
-            displayAdminAlerts(); // Display admin alerts when panel is visible
-            displayAdminPendingRecommendations(); // Display pending recommendations when admin panel is visible
-            displayAdminApprovedBooks(); // NEW: Display approved books when admin panel is visible
+            displayRecommendedBooks(); // This will re-render and correctly show/hide admin actions on book cards
+            if (showAdmin) {
+                displayAdminAlerts();
+                displayAdminPendingRecommendations();
+                displayAdminApprovedBooks();
+            }
         }
+
 
         /**
          * Displays AI-generated recommendations that are awaiting admin approval.
@@ -2076,6 +2194,8 @@
                 console.error("ERROR: 'no-admin-pending-recs-message' element not found. Please check its ID in the HTML.");
                 return;
             }
+
+            console.log("displayAdminPendingRecommendations: Called. Pending recs:", window.adminPendingRecommendations.length);
 
             pendingRecsList.innerHTML = ''; // Clear existing content
 
@@ -2156,6 +2276,8 @@
                 console.error("ERROR: 'no-admin-approved-books-message' element not found. Please check its ID in the HTML.");
                 return;
             }
+
+            console.log("displayAdminApprovedBooks: Called. Approved books:", window.adminApprovedBooks.length);
 
             approvedBooksList.innerHTML = ''; // Clear existing content
 
@@ -2338,14 +2460,17 @@
          * @param {string} viewId - The ID of the view to show (e.g., 'recommendations-view').
          */
         function showView(viewId) {
+            console.log(`showView: Attempting to show view: ${viewId}`);
             const views = ['recommendations-view', 'bookshelf-view', 'beth-deleted-books-view', 'flagged-books-view', 'admin-approved-books-view'];
             views.forEach(id => {
                 const viewElement = document.getElementById(id);
                 if (viewElement) {
                     if (id === viewId) {
                         viewElement.classList.remove('hidden');
+                        console.log(`showView: Removed 'hidden' from ${id}`);
                     } else {
                         viewElement.classList.add('hidden');
+                        console.log(`showView: Added 'hidden' to ${id}`);
                     }
                 }
             });
@@ -2409,6 +2534,7 @@
             const pickedBook = window.recommendedBooks.find(book => book.workKey === bookWorkKey);
 
             if (pickedBook) {
+                console.log(`handlePickBook: Beth picked book with workKey: ${bookWorkKey}`);
                 // Send alert BEFORE modifying pickedBook, as sendAdminAlert uses current book data
                 await sendAdminAlert('picked_book', bookWorkKey); 
                 
@@ -2421,9 +2547,11 @@
                 const isAlreadyOnShelf = window.bookShelfBooks.some(book => book.workKey === pickedBook.workKey);
                 if (!isAlreadyOnShelf) {
                     await setBookInFirestore(pickedBook, 'bookshelf_books');
+                    console.log(`handlePickBook: Added "${pickedBook.title}" to bookshelf.`);
                 } else {
                     // If already on shelf, just update its rating
                     await setBookInFirestore(pickedBook, 'bookshelf_books');
+                    console.log(`handlePickBook: Updated "${pickedBook.title}" on bookshelf.`);
                 }
 
                 // Remove from recommended list
@@ -2435,13 +2563,14 @@
          * Sends an alert to the admin indicating Beth is ready for more recommendations.
          */
         function requestMoreRecommendations() {
+            console.log("requestMoreRecommendations: Beth clicked 'Ready for More Recommendations!'");
             sendAdminAlert('request_more_recs');
             showMessage("Your request for more recommendations has been sent to the admin!", false, false);
         }
 
         /**
          * Sends an alert message to the admin panel.
-         * @param {string} type - The type of alert (e.g., 'picked_book', 'request_more_recs').
+         * @param {string} type - The type of alert (e.g., 'picked_book', 'request_more_recs', 'recommendations_generation_started').
          * @param {string} [data=''] - Additional data related to the alert (e.g., book workKey).
          */
         async function sendAdminAlert(type, data = '') {
@@ -2456,14 +2585,18 @@
             } else if (type === 'passed_book') { // Added for passed books
                 const book = window.recommendedBooks.find(b => b.workKey === data);
                 message = `Beth passed on: "${book ? book.title : 'Unknown Book'}" (WorkKey: ${data})`;
+            } else if (type === 'recommendations_generation_started') { // New alert type
+                message = `Admin initiated new recommendation generation.`;
             }
 
             const newAlert = { message: message, timestamp: timestamp };
+            console.log(`sendAdminAlert: Preparing to send alert. Type: "${type}", Data: "${data}", Message: "${message}"`);
             // addAdminAlertToFirestore now returns the alert with its Firestore ID
             const addedAlert = await addAdminAlertToFirestore(newAlert);
             if (addedAlert) {
-                // The global window.adminAlerts array will be updated by the Firestore listener
-                // No need to manually push here, as the listener will handle it.
+                console.log("sendAdminAlert: Alert successfully added to Firestore:", addedAlert);
+            } else {
+                console.error("sendAdminAlert: Failed to add alert to Firestore.");
             }
         }
 
@@ -2477,17 +2610,19 @@
 
             // Add null checks for robustness
             if (!adminAlertsContainer) {
-                console.error("ERROR: 'admin-alerts-container' element not found. Please check its ID in the HTML.");
+                console.error("ERROR: 'admin-alerts-container' element not found. Cannot display admin alerts.");
                 return;
             }
             if (!adminAlertsList) {
-                console.error("ERROR: 'admin-alerts-list' element not found. Please check its ID in the HTML.");
+                console.error("ERROR: 'admin-alerts-list' element not found. Cannot display admin alerts.");
                 return;
             }
             if (!noAdminAlertsMessage) {
-                console.error("ERROR: 'no-admin-alerts-message' element not found. Please check its ID in the HTML.");
+                console.error("ERROR: 'no-admin-alerts-message' element not found. Cannot display admin alerts.");
                 return;
             }
+
+            console.log("displayAdminAlerts: Called. Current alerts in window.adminAlerts:", window.adminAlerts.length);
 
             // Data is now sourced from window.adminAlerts (updated by Firestore listener)
             adminAlertsList.innerHTML = ''; // Clear existing alerts
@@ -2495,9 +2630,11 @@
             if (window.adminAlerts.length === 0) {
                 adminAlertsContainer.classList.add('hidden');
                 noAdminAlertsMessage.classList.remove('hidden');
+                console.log("displayAdminAlerts: Hiding admin alerts container, showing no alerts message.");
             } else {
                 adminAlertsContainer.classList.remove('hidden');
                 noAdminAlertsMessage.classList.add('hidden');
+                console.log("displayAdminAlerts: Showing admin alerts container.");
                 window.adminAlerts.forEach(alert => {
                     const alertItem = document.createElement('div');
                     alertItem.className = 'admin-alert-item';
@@ -2520,6 +2657,7 @@
          * @param {string} id - The unique document ID of the alert to dismiss.
          */
         async function dismissAdminAlert(id) {
+            console.log(`dismissAdminAlert: Attempting to dismiss alert with ID: ${id}`);
             await deleteAdminAlertFromFirestore(id);
         }
 
@@ -2545,10 +2683,13 @@
             messageBox.classList.toggle('llm-insight', isLlmInsight); // Add/remove LLM specific styling
             closeButton.style.display = isLoader ? 'none' : 'block'; // Hide close button for loaders
             messageBox.style.display = 'block';
+            console.log(`showMessage: Displaying message: "${text}", isLoader: ${isLoader}, isLlmInsight: ${isLlmInsight}`);
+
 
             if (!isLoader && !isLlmInsight) { // Auto-hide for simple messages (like "You picked...")
                 setTimeout(() => {
                     messageBox.style.display = 'none';
+                    console.log("showMessage: Auto-hiding message box.");
                 }, 5000);
             } else if (isLlmInsight) { // Keep LLM insight open until closed manually
                 // Re-attach listener to ensure it's only active for this specific message
@@ -2563,6 +2704,7 @@
             if (messageBox) {
                 messageBox.style.display = 'none';
                 messageBox.classList.remove('llm-insight');
+                console.log("closeMessageBox: Message box closed.");
             }
         }
 
@@ -2570,8 +2712,9 @@
          * Seeds Beth's bookshelf with initial "loved" books if they are not already present.
          */
         async function seedInitialBookshelf() {
+            console.log("seedInitialBookshelf: Function started.");
             if (localStorage.getItem(MIGRATED_INITIAL_BOOKSHELF_FLAG) === 'true') {
-                console.log("Initial bookshelf seeding already completed.");
+                console.log("seedInitialBookshelf: Initial bookshelf seeding already completed (flag found in localStorage).");
                 return;
             }
 
@@ -2581,19 +2724,26 @@
                 { url: 'https://openlibrary.org/works/OL19749472W/Then_she_was_gone', userRating: 'love' }
             ];
 
-            console.log("Attempting to seed initial bookshelf...");
+            console.log("seedInitialBookshelf: Attempting to seed initial bookshelf with", initialBooks.length, "books.");
             for (const bookInfo of initialBooks) {
+                console.log(`seedInitialBookshelf: Processing book URL: ${bookInfo.url}`);
                 const workKeyMatch = bookInfo.url.match(/\/works\/(OL\d+W)/);
                 if (!workKeyMatch || !workKeyMatch[1]) {
-                    console.warn(`Invalid Open Library Work URL for seeding: ${bookInfo.url}`);
+                    console.warn(`seedInitialBookshelf: Invalid Open Library Work URL for seeding: ${bookInfo.url}. Skipping.`);
                     continue;
                 }
                 const workKey = workKeyMatch[1];
+                console.log(`seedInitialBookshelf: Extracted workKey: ${workKey}`);
 
                 // Check if the book already exists in Beth's bookshelf
+                // IMPORTANT: Ensure window.bookShelfBooks is populated by its listener BEFORE this check
+                // This is why seedInitialBookshelf is called after setupFirestoreListeners
                 const isAlreadyOnShelf = window.bookShelfBooks.some(book => book.workKey === workKey);
+                console.log(`seedInitialBookshelf: Is book with workKey ${workKey} already on bookshelf? ${isAlreadyOnShelf}`);
+
 
                 if (!isAlreadyOnShelf) {
+                    console.log(`seedInitialBookshelf: Fetching details for ${workKey}...`);
                     const bookDetails = await fetchBookDetailsFromOpenLibrary(workKey);
                     if (bookDetails) {
                         const bookToSave = {
@@ -2601,19 +2751,108 @@
                             userRating: bookInfo.userRating,
                             source: 'Initial Seeding'
                         };
+                        console.log(`seedInitialBookshelf: Details fetched for "${bookDetails.title}". Attempting to save to bookshelf.`);
                         await setBookInFirestore(bookToSave, 'bookshelf_books');
-                        console.log(`Seeded "${bookDetails.title}" as 'loved' on bookshelf.`);
+                        console.log(`seedInitialBookshelf: Successfully seeded "${bookDetails.title}" as 'loved' on bookshelf.`);
                     } else {
-                        console.warn(`Failed to fetch details for seeding book: ${bookInfo.url}`);
+                        console.warn(`seedInitialBookshelf: Failed to fetch details for seeding book: ${bookInfo.url}. Skipping.`);
                     }
                 } else {
-                    console.log(`"${bookInfo.url}" already exists on bookshelf. Skipping seeding.`);
+                    console.log(`seedInitialBookshelf: "${bookInfo.url}" (workKey: ${workKey}) already exists on bookshelf. Skipping seeding.`);
                 }
             }
             localStorage.setItem(MIGRATED_INITIAL_BOOKSHELF_FLAG, 'true');
-            console.log("Initial bookshelf seeding process completed.");
+            console.log("seedInitialBookshelf: Initial bookshelf seeding process completed. Flag set in localStorage.");
         }
 
+        /**
+         * Initializes the main application after successful PIN login.
+         * @param {boolean} isAdminLogin - True if the login was via the admin PIN.
+         */
+        async function initializeAppContent(isAdminLogin = false) {
+            // Set the fixed admin user ID
+            window.adminUserId = BETH_FIREBASE_USER_ID;
+            console.log("App Content Initialized: Admin User ID set to", window.adminUserId);
+            console.log(`initializeAppContent: isAdminLogin = ${isAdminLogin}`);
+
+            // Perform migrations first
+            console.log("Initializing App Content: Starting local storage migrations...");
+            await migrateLocalStorageToFirestore(RECOMMENDED_BOOKS_KEY, MIGRATED_RECOMMENDED_BOOKS_FLAG, 'recommended_books');
+            await migrateLocalStorageToFirestore(BOOK_SHELF_BOOKS_KEY, MIGRATED_BOOKSHELF_BOOKS_FLAG, 'bookshelf_books');
+            await migrateLocalStorageToFirestore(FLAGGED_BOOKS_KEY, MIGRATED_FLAGGED_BOOKS_FLAG, 'flagged_books', window.adminUserId);
+            await migrateLocalStorageToFirestore(BETH_DELETED_BOOKS_KEY, MIGRATED_BETH_DELETED_BOOKS_FLAG, 'beth_deleted_books');
+            await migrateLocalStorageToFirestore(ADMIN_ALERTS_KEY, MIGRATED_ADMIN_ALERTS_FLAG, 'admin_alerts', window.adminUserId);
+            await migrateLocalStorageToFirestore(ADMIN_PENDING_RECS_KEY, MIGRATED_ADMIN_PENDING_RECS_FLAG, 'admin_pending_recs', window.adminUserId);
+            await migrateLocalStorageToFirestore(ADMIN_APPROVED_BOOKS_KEY, MIGRATED_ADMIN_APPROVED_BOOKS_FLAG, 'admin_approved_books', window.adminUserId);
+
+            // Negative feedback migration (special case as it's a simple array of strings)
+            const oldNegativeFeedback = localStorage.getItem(BETH_NEGATIVE_FEEDBACK_KEY);
+            if (oldNegativeFeedback && localStorage.getItem(MIGRATED_BETH_NEGATIVE_FEEDBACK_FLAG) !== 'true') {
+                try {
+                    const terms = JSON.parse(oldNegativeFeedback);
+                    if (Array.isArray(terms) && terms.length > 0) {
+                        console.log(`Initializing App Content: Migrating ${terms.length} negative feedback terms...`);
+                        for (const term of terms) {
+                            await addNegativeFeedbackToFirestore(term);
+                        }
+                        localStorage.setItem(MIGRATED_BETH_NEGATIVE_FEEDBACK_FLAG, 'true');
+                        localStorage.removeItem(BETH_NEGATIVE_FEEDBACK_KEY);
+                        console.log('Initializing App Content: Negative feedback migration completed.');
+                    }
+                } catch (e) {
+                    console.error("Initializing App Content: Error migrating negative feedback:", e);
+                }
+            }
+            console.log("Initializing App Content: Local storage migrations completed.");
+
+            // Setup Firestore listeners after all migrations are potentially done
+            setupFirestoreListeners();
+            
+            // Seed initial bookshelf books (after listeners are set up so window.bookShelfBooks is populated)
+            await seedInitialBookshelf();
+
+            // Hide login screen
+            document.getElementById('login-screen').classList.add('hidden');
+            
+            // Show splash screen
+            document.getElementById('splash-screen').classList.remove('hidden');
+            console.log("initializeAppContent: Showing splash screen.");
+
+            // Set admin panel visibility based on login type
+            setAdminUIVisibility(isAdminLogin);
+
+            // The splash screen will transition to main-content and show recommendations view
+            // The "Ready for More Recommendations!" button is now always visible for logged-in users.
+            document.getElementById('request-more-recs-container')?.classList.remove('hidden');
+            console.log("initializeAppContent: 'Ready for More Recommendations' button visible.");
+        }
+
+        /**
+         * Handles logging out, returning to the login screen.
+         */
+        function handleLogout() {
+            // Hide all main content views
+            document.getElementById('main-content').classList.add('hidden');
+            document.getElementById('splash-screen').classList.add('hidden');
+            // Show login screen
+            document.getElementById('login-screen').classList.remove('hidden');
+            // Clear PIN input
+            document.getElementById('pin-input').value = '';
+            // Reset admin UI visibility
+            setAdminUIVisibility(false); // Hide admin elements on logout
+            console.log("Logged out. Returning to login screen.");
+        }
+
+        /**
+         * Displays a message for PIN recovery.
+         */
+        function showPinRecoveryMessage() {
+            showMessage(
+                `If you've forgotten your PIN, please contact the administrator (e.g., check the source code for the hardcoded PINs).`,
+                false,
+                true // Keep open until manually closed
+            );
+        }
 
         document.addEventListener('DOMContentLoaded', async () => {
             // Set the current year in the footer
@@ -2622,12 +2861,23 @@
                 currentYearElement.textContent = new Date().getFullYear();
             }
 
+            // Explicitly hide elements on load to ensure correct initial state
+            document.getElementById('admin-search-panel')?.classList.add('hidden');
+            document.getElementById('nav-flagged-books')?.classList.add('hidden');
+            document.getElementById('nav-admin-approved-books')?.classList.add('hidden');
+            document.getElementById('request-more-recs-container')?.classList.add('hidden'); // Initially hidden until Beth logs in
+            document.getElementById('main-content')?.classList.add('hidden');
+            document.getElementById('splash-screen')?.classList.add('hidden'); // New splash screen, hidden by default
+            document.getElementById('login-screen')?.classList.remove('hidden'); // Show login screen initially
+            console.log("DOMContentLoaded: Initial UI state set.");
+
+
             // --- IMPORTANT: Firebase Initialization for GitHub Deployment ---
             // When deploying to GitHub, you need to provide your actual Firebase config.
             // Get this from your Firebase project settings (Project settings > General > Your apps > Web app > Config).
             // This config is now directly provided by the user.
             const firebaseConfig = {
-                apiKey: "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk",
+                apiKey: "AIzaSyAFy0zdwfRbLuOHLvrjRpCo1WVAM_6JES4",
                 authDomain: "beths-book-club.firebaseapp.com",
                 projectId: "beths-book-club",
                 storageBucket: "beths-book-club.firebasestorage.app",
@@ -2639,7 +2889,7 @@
             try {
                 window.firebaseApp = initializeApp(firebaseConfig);
                 window.db = getFirestore(window.firebaseApp);
-                window.auth = getAuth(window.firebaseApp);
+                window.auth = getAuth(window.firebaseApp); // Auth service initialized, but not used for PIN login
                 window.analytics = getAnalytics(window.firebaseApp); // Initialize analytics
                 console.log("Firebase initialized successfully.");
             } catch (error) {
@@ -2648,71 +2898,40 @@
                 return; // Stop execution if Firebase initialization fails
             }
 
-            // Authenticate user
-            onAuthStateChanged(window.auth, async (user) => {
-                if (user) {
-                    window.adminUserId = user.uid;
-                    console.log("Authenticated as:", user.uid);
+            // --- PIN Login Event Listener ---
+            const pinInput = document.getElementById('pin-input');
+            const loginButton = document.getElementById('login-button');
+            const loginMessage = document.getElementById('login-message');
 
-                    // Perform migrations first
-                    await migrateLocalStorageToFirestore(RECOMMENDED_BOOKS_KEY, MIGRATED_RECOMMENDED_BOOKS_FLAG, 'recommended_books');
-                    await migrateLocalStorageToFirestore(BOOK_SHELF_BOOKS_KEY, MIGRATED_BOOKSHELF_BOOKS_FLAG, 'bookshelf_books');
-                    await migrateLocalStorageToFirestore(FLAGGED_BOOKS_KEY, MIGRATED_FLAGGED_BOOKS_FLAG, 'flagged_books', window.adminUserId);
-                    await migrateLocalStorageToFirestore(BETH_DELETED_BOOKS_KEY, MIGRATED_BETH_DELETED_BOOKS_FLAG, 'beth_deleted_books');
-                    await migrateLocalStorageToFirestore(ADMIN_ALERTS_KEY, MIGRATED_ADMIN_ALERTS_FLAG, 'admin_alerts', window.adminUserId);
-                    await migrateLocalStorageToFirestore(ADMIN_PENDING_RECS_KEY, MIGRATED_ADMIN_PENDING_RECS_FLAG, 'admin_pending_recs', window.adminUserId);
-                    await migrateLocalStorageToFirestore(ADMIN_APPROVED_BOOKS_KEY, MIGRATED_ADMIN_APPROVED_BOOKS_FLAG, 'admin_approved_books', window.adminUserId);
-
-                    // Negative feedback migration (special case as it's a simple array of strings)
-                    const oldNegativeFeedback = localStorage.getItem(BETH_NEGATIVE_FEEDBACK_KEY);
-                    if (oldNegativeFeedback && localStorage.getItem(MIGRATED_BETH_NEGATIVE_FEEDBACK_FLAG) !== 'true') {
-                        try {
-                            const terms = JSON.parse(oldNegativeFeedback);
-                            if (Array.isArray(terms) && terms.length > 0) {
-                                console.log(`Migrating ${terms.length} negative feedback terms...`);
-                                for (const term of terms) {
-                                    await addNegativeFeedbackToFirestore(term);
-                                }
-                                localStorage.setItem(MIGRATED_BETH_NEGATIVE_FEEDBACK_FLAG, 'true');
-                                localStorage.removeItem(BETH_NEGATIVE_FEEDBACK_KEY);
-                                console.log('Negative feedback migration completed.');
-                            }
-                        } catch (e) {
-                            console.error("Error migrating negative feedback:", e);
-                        }
-                    }
-
-                    // Setup Firestore listeners after all migrations are potentially done
-                    setupFirestoreListeners();
-                    
-                    // Seed initial bookshelf books (after listeners are set up so window.bookShelfBooks is populated)
-                    await seedInitialBookshelf();
-
-                    showView('recommendations-view'); // Display initial view after data is potentially loaded
-                } else {
-                    // Sign in anonymously if not already authenticated or if Canvas token is not available
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        try {
-                            await signInWithCustomToken(window.auth, __initial_auth_token);
-                        } catch (error) {
-                            console.error("Error signing in with custom token:", error);
-                            // Fallback to anonymous if custom token fails
-                            await signInAnonymously(window.auth);
-                        }
+            if (loginButton) {
+                loginButton.addEventListener('click', () => {
+                    console.log("Login button clicked.");
+                    const enteredPin = pinInput ? pinInput.value : '';
+                    if (enteredPin === BETH_PIN) {
+                        loginMessage.textContent = '';
+                        console.log("Beth's PIN entered. Initializing app for Beth.");
+                        initializeAppContent(false); // Not admin login
+                    } else if (enteredPin === ADMIN_PIN) {
+                        loginMessage.textContent = '';
+                        console.log("Admin PIN entered. Initializing app for Admin.");
+                        initializeAppContent(true); // Admin login
                     } else {
-                        // For GitHub deployment, always sign in anonymously if no Canvas token
-                        await signInAnonymously(window.auth);
+                        loginMessage.textContent = 'Incorrect PIN. Please try again.';
+                        loginMessage.classList.remove('hidden');
+                        console.log("Incorrect PIN entered.");
                     }
-                }
-            });
+                });
+            }
+
+            if (pinInput) {
+                pinInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        loginButton?.click();
+                    }
+                });
+            }
 
             // --- Event Listeners for Static Elements (No longer inline onclick) ---
-
-            // Header Title to toggle Admin Panel
-            const mainTitle = document.querySelector('h1.cursor-pointer');
-            if (mainTitle) {
-                mainTitle.addEventListener('click', toggleAdminSearchPanel);
-            }
 
             // Navigation Buttons
             document.getElementById('nav-recommendations')?.addEventListener('click', () => showView('recommendations-view'));
@@ -2745,6 +2964,19 @@
             });
             document.getElementById('evaluate-book-url-input')?.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') document.getElementById('evaluate-book-button')?.click();
+            });
+
+            // Logout Button
+            document.getElementById('logout-button')?.addEventListener('click', handleLogout);
+
+            // Forgot PIN Button
+            document.getElementById('forgot-pin-button')?.addEventListener('click', showPinRecoveryMessage);
+
+            // Splash Screen Continue Button
+            document.getElementById('splash-continue-button')?.addEventListener('click', () => {
+                document.getElementById('splash-screen')?.classList.add('hidden');
+                document.getElementById('main-content')?.classList.remove('hidden');
+                showView('recommendations-view'); // Transition to main recommendations view
             });
 
             // Close button for message box (initial setup)
@@ -3160,29 +3392,54 @@
     </style>
 </head>
 <body class="antialiased">
-    <div class="min-h-screen flex flex-col">
+    <!-- Login Screen -->
+    <div id="login-screen" class="min-h-screen flex items-center justify-center bg-gray-100">
+        <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-sm text-center">
+            <h2 class="text-2xl font-bold mb-6 text-gray-800">Beth's Book Club Login</h2>
+            <input type="password" id="pin-input" placeholder="Enter 4-digit PIN" maxlength="4"
+                   class="w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700 text-center text-xl tracking-widest">
+            <button id="login-button" class="action-button w-full mt-6 px-6 py-3 bg-emerald-600 hover:bg-emerald-700">Login</button>
+            <p id="login-message" class="text-red-500 mt-4 hidden"></p>
+            <button id="forgot-pin-button" class="text-blue-600 hover:underline mt-4 text-sm">Forgot PIN?</button>
+        </div>
+    </div>
+
+    <!-- Splash Screen (Hidden by default, shown after successful login) -->
+    <div id="splash-screen" class="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-emerald-500 to-emerald-700 text-white p-4 hidden">
+        <h2 class="text-5xl font-extrabold mb-6 text-center animate-pulse">Welcome, Beth!</h2>
+        <p class="text-xl text-center mb-8 max-w-lg">
+            Your personalized book recommendations are ready. Let's find your next favorite read!
+        </p>
+        <button id="splash-continue-button" class="action-button px-8 py-4 text-lg bg-white text-emerald-700 hover:bg-gray-100 transition-colors duration-300">
+            Start Reading
+        </button>
+    </div>
+
+    <!-- Main Content Area (Hidden until login) -->
+    <div id="main-content" class="min-h-screen flex flex-col hidden">
         <!-- Header Section -->
         <header class="bg-gradient-to-r from-emerald-800 to-gray-900 text-white shadow-lg py-6 px-4 sm:px-6 lg:px-8">
             <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center">
-                <!-- Click this title to toggle admin search panel -->
-                <h1 class="text-4xl font-extrabold tracking-tight mb-2 sm:mb-0 cursor-pointer flex items-center gap-2" id="main-title">
+                <h1 class="text-4xl font-extrabold tracking-tight mb-2 sm:mb-0 flex items-center gap-2" id="main-title">
                     Beth's Book Club
                 </h1>
                 <p class="text-xl opacity-90">Curated reads for you, my love.</p>
+                <!-- Logout Button -->
+                <button id="logout-button" class="action-button bg-red-500 hover:bg-red-600 px-4 py-2 text-sm mt-4 sm:mt-0">Logout</button>
             </div>
             <nav class="max-w-7xl mx-auto mt-4 flex justify-center space-x-4">
                 <button id="nav-recommendations" class="nav-button active">Recommended Reads</button>
                 <button id="nav-bookshelf" class="nav-button">My Bookshelf</button>
                 <!-- New tab for Beth's deleted books -->
                 <button id="nav-beth-deleted-books" class="nav-button">Deleted Books</button>
-                <!-- Admin-only tabs, initially hidden -->
+                <!-- Admin-only tabs, initially hidden and controlled by PIN login -->
                 <button id="nav-flagged-books" class="nav-button hidden">Flagged Books</button>
                 <button id="nav-admin-approved-books" class="nav-button hidden">Admin Approved</button>
             </nav>
         </header>
 
-        <!-- Admin Search Section (Initially Hidden) -->
-        <section id="admin-search-panel" class="py-8 px-4 sm:px-6 lg:px-8 bg-gray-100 border-b border-gray-200">
+        <!-- Admin Search Section (Initially Hidden and controlled by PIN login) -->
+        <section id="admin-search-panel" class="py-8 px-4 sm:px-6 lg:px-8 bg-gray-100 border-b border-gray-200 hidden">
             <div class="max-w-7xl mx-auto">
                 <h2 class="text-2xl font-bold text-center mb-6 text-gray-800">Admin: Find & Add Books</h2>
 
@@ -3241,7 +3498,7 @@
                     <!-- Curated book cards will be dynamically inserted here by JavaScript -->
                 </div>
                 <p id="no-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
-                <!-- New button for Beth to request more recommendations -->
+                <!-- New button for Beth to request more recommendations (visibility controlled by PIN login) -->
                 <div id="request-more-recs-container" class="mt-10 text-center hidden">
                     <button id="request-more-recs-button" class="action-button px-8 py-4 text-lg bg-blue-500 hover:bg-blue-600">Ready for More Recommendations!</button>
                 </div>
@@ -3271,7 +3528,7 @@
             </div>
         </section>
 
-        <!-- Admin Flagged Books Section (Initially Hidden) -->
+        <!-- Admin Flagged Books Section (Initially Hidden and controlled by PIN login) -->
         <section id="flagged-books-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
             <div class="max-w-7xl mx-auto">
                 <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Admin: Flagged Books</h2>
@@ -3282,7 +3539,7 @@
             </div>
         </section>
 
-        <!-- Admin Approved Books Section (Initially Hidden) -->
+        <!-- Admin Approved Books Section (Initially Hidden and controlled by PIN login) -->
         <section id="admin-approved-books-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
             <div class="max-w-7xl mx-auto">
                 <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Admin: Approved Books</h2>
@@ -3305,7 +3562,4 @@
     <!-- Message box for pick confirmation and other messages -->
     <div id="message-box" class="message-box">
         <p id="message-text"></p>
-        <button id="message-box-close" class="mt-4 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700">Close</button>
-    </div>
-</body>
-</html>
+        <button id="message-box-close" class="mt-4 px-4 py-2 bg-emerald-600 text-white roun
