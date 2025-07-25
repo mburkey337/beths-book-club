@@ -369,40 +369,46 @@
         }
 
         /**
-         * Fetches full book details from Open Library's /works/{key}.json endpoint.
-         * Applies filters for cover image presence and minimum publication year.
-         * @param {string} workKey - The Open Library work key (e.g., "OL12345W").
-         * @returns {Promise<Object|null>} A promise that resolves to the book details object or null if not found/filtered.
+         * FIXED: Enhanced fetchBookDetailsFromOpenLibrary with better error handling
          */
         async function fetchBookDetailsFromOpenLibrary(workKey) {
             if (!workKey) {
                 console.warn(`fetchBookDetailsFromOpenLibrary: No workKey provided.`);
                 return null;
             }
+            
             try {
-                const response = await fetch(`${OPEN_LIBRARY_WORK_URL}${workKey}.json`);
+                // FIXED: Add AbortController for timeout handling
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                
+                const response = await fetch(`${OPEN_LIBRARY_WORK_URL}${workKey}.json`, {
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
                 if (!response.ok) {
-                    console.warn(`WARNING: Failed to fetch full details for work ${workKey}: ${response.status} - ${response.statusText}`);
+                    console.warn(`WARNING: Failed to fetch full details for work ${workKey}: ${response.status}`);
                     return null;
                 }
+                
                 const data = await response.json();
-                console.log(`DEBUG: Full details for ${workKey}:`, data);
 
                 // Filter out books without covers
                 if (!data.covers || data.covers.length === 0) {
-                    console.log(`DEBUG: Skipping "${data.title}" (workKey: ${workKey}) - no cover image available.`);
+                    console.log(`DEBUG: Skipping "${data.title}" - no cover image available.`);
                     return null;
                 }
 
-                // Ensure first_publish_year is a number or null
+                // Filter by publication year
                 const firstPublishYear = data.first_publish_year && typeof data.first_publish_year === 'number' ? data.first_publish_year : null;
-
-                // Filter out books older than MIN_PUBLISH_YEAR
                 if (firstPublishYear && firstPublishYear < MIN_PUBLISH_YEAR) {
-                    console.log(`DEBUG: Skipping "${data.title}" (workKey: ${workKey}) - published in ${firstPublishYear}, which is older than ${MIN_PUBLISH_YEAR}.`);
+                    console.log(`DEBUG: Skipping "${data.title}" - too old (${firstPublishYear}).`);
                     return null;
                 }
 
+                // Process description
                 let description = '';
                 if (data.description) {
                     if (typeof data.description === 'object' && data.description.value) {
@@ -412,37 +418,51 @@
                     }
                 }
 
-                // Attempt to get author name from authors array, or use a placeholder
+                // FIXED: Simplified author fetching with timeout
                 let authorName = 'Unknown Author';
                 if (data.authors && data.authors.length > 0 && data.authors[0].author && data.authors[0].author.key) {
-                    const authorKey = data.authors[0].author.key;
-                    const authorResponse = await fetch(`https://openlibrary.org${authorKey}.json`);
-                    if (authorResponse.ok) {
-                        const authorData = await authorResponse.json();
-                        authorName = authorData.name || 'Unknown Author';
+                    try {
+                        const authorController = new AbortController();
+                        const authorTimeoutId = setTimeout(() => authorController.abort(), 5000); // 5 second timeout for author
+                        
+                        const authorResponse = await fetch(`https://openlibrary.org${data.authors[0].author.key}.json`, {
+                            signal: authorController.signal
+                        });
+                        
+                        clearTimeout(authorTimeoutId);
+                        
+                        if (authorResponse.ok) {
+                            const authorData = await authorResponse.json();
+                            authorName = authorData.name || 'Unknown Author';
+                        }
+                    } catch (authorError) {
+                        console.warn("Failed to fetch author details, using fallback");
+                        // Use by_statement as fallback
+                        authorName = data.by_statement || 'Unknown Author';
                     }
-                } else if (data.by_statement) { // Fallback to by_statement if authors array is missing
+                } else if (data.by_statement) {
                     authorName = data.by_statement;
                 }
-
-                // Construct image URL from covers array (already checked for existence above)
-                let imageUrl = `${OPEN_LIBRARY_COVER_URL}${data.covers[0]}-M.jpg`;
 
                 return {
                     title: data.title || 'Unknown Title',
                     author: authorName,
                     description: description,
-                    imageUrl: imageUrl,
-                    goodreadsUrl: `https://openlibrary.org${data.key}`, // Use Open Library work URL
-                    rating: data.ratings_average && typeof data.ratings_average === 'number' ? data.ratings_average : null, // Ensure rating is number or null
+                    imageUrl: `${OPEN_LIBRARY_COVER_URL}${data.covers[0]}-M.jpg`,
+                    goodreadsUrl: `https://openlibrary.org${data.key}`,
+                    rating: data.ratings_average && typeof data.ratings_average === 'number' ? data.ratings_average : null,
                     subjects: data.subjects || [],
                     source: 'Open Library Work Details',
-                    first_publish_year: firstPublishYear, // Use the cleaned publish year
-                    workKey: workKey // Crucial for Firestore document ID
+                    first_publish_year: firstPublishYear,
+                    workKey: workKey
                 };
-            }
-            catch (error) {
-                console.error(`ERROR: Error fetching full details for work ${workKey}:`, error);
+                
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.warn(`fetchBookDetailsFromOpenLibrary: Timeout for work ${workKey}`);
+                } else {
+                    console.error(`ERROR: Error fetching full details for work ${workKey}:`, error);
+                }
                 return null;
             }
         }
@@ -1455,11 +1475,7 @@
 
 
         /**
-         * Generates new book recommendations using a multi-phase approach:
-         * 1. Collects lightweight candidates from various sources (bookshelf-based, AI-powered, trending).
-         * 2. Fetches full details for promising candidates.
-         * 3. Scores books based on Beth's preferences and filters them.
-         * 4. Adds approved recommendations to the admin pending list.
+         * FIXED: Generates new book recommendations using a multi-phase approach with proper error handling and loop controls
          */
         async function generateRecommendations() {
             const loader = document.getElementById('search-loader');
@@ -1473,136 +1489,226 @@
             console.log("generateRecommendations: Initiated.");
 
             // Send admin alert that recommendation generation has started
-            console.log("generateRecommendations: Sending 'recommendations_generation_started' alert.");
-            await sendAdminAlert('recommendations_generation_started');
+            try {
+                await sendAdminAlert('recommendations_generation_started');
+            } catch (error) {
+                console.warn("Failed to send admin alert:", error);
+                // Don't fail the whole process for this
+            }
 
             const TARGET_BOOKS = 6;
-            const MIN_SCORE_THRESHOLD = 50; // Minimum score for a book to be recommended
-            const AUTO_APPROVE_SCORE_THRESHOLD = 80; // New: Score for automatic approval
-            const MAX_CANDIDATE_FETCH_ATTEMPTS = 5; // Max attempts to fetch batches of lightweight candidates
-            const OPEN_LIBRARY_LIGHTWEIGHT_LIMIT = 50; // Number of lightweight candidates to fetch per query
-            const FULL_DETAIL_FETCH_BATCH_SIZE = 10; // How many full book details to fetch in one go
+            const MIN_SCORE_THRESHOLD = 50;
+            const AUTO_APPROVE_SCORE_THRESHOLD = 80;
+            const MAX_CANDIDATE_FETCH_ATTEMPTS = 3; // REDUCED from 5 to prevent hanging
+            const OPEN_LIBRARY_LIGHTWEIGHT_LIMIT = 30; // REDUCED from 50
+            const FULL_DETAIL_FETCH_BATCH_SIZE = 5; // REDUCED from 10
+            const MAX_API_CALLS_PER_BATCH = 3; // NEW: Limit API calls per batch
+            const API_DELAY_MS = 100; // NEW: Delay between API calls
 
             let allLightweightCandidates = [];
-            const processedWorkKeys = new Set(); // To avoid duplicates and re-fetching full details
+            const processedWorkKeys = new Set();
 
-            // Collect titles of all existing books to avoid recommending duplicates
+            // Collect existing book workKeys
             const existingBookWorkKeys = new Set(window.recommendedBooks.map(book => book.workKey));
             window.bookShelfBooks.forEach(book => existingBookWorkKeys.add(book.workKey));
             window.flaggedBooks.forEach(book => existingBookWorkKeys.add(book.workKey));
             window.bethDeletedBooks.forEach(book => existingBookWorkKeys.add(book.workKey));
             window.adminPendingRecommendations.forEach(book => existingBookWorkKeys.add(book.workKey));
-            window.adminApprovedBooks.forEach(book => existingBookWorkKeys.add(book.workKey)); // NEW: Include admin approved books
-
+            window.adminApprovedBooks.forEach(book => existingBookWorkKeys.add(book.workKey));
 
             try {
-                // Phase 1: Collect lightweight candidates from various sources
+                // Phase 1: Collect lightweight candidates with FIXED loop control
                 for (let attempt = 0; attempt < MAX_CANDIDATE_FETCH_ATTEMPTS; attempt++) {
                     console.log(`generateRecommendations: Fetching lightweight candidates - Attempt ${attempt + 1}`);
-                    // Get lightweight bookshelf-based candidates
-                    const bookshelfCandidates = await getBookshelfBasedRecommendations(OPEN_LIBRARY_LIGHTWEIGHT_LIMIT);
-                    allLightweightCandidates = allLightweightCandidates.concat(bookshelfCandidates);
-                    console.log(`generateRecommendations: Bookshelf candidates found: ${bookshelfCandidates.length}`);
+                    
+                    try {
+                        // FIXED: Add timeout and error handling for each candidate source
+                        const candidatePromises = [
+                            Promise.race([
+                                getBookshelfBasedRecommendations(OPEN_LIBRARY_LIGHTWEIGHT_LIMIT),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 30000))
+                            ]),
+                            Promise.race([
+                                getAIPoweredRecommendations(),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 30000))
+                            ]),
+                            Promise.race([
+                                getTrendingOpenLibraryCandidates(OPEN_LIBRARY_LIGHTWEIGHT_LIMIT),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 30000))
+                            ])
+                        ];
 
-                    // Get lightweight AI-powered candidates
-                    const aiCandidates = await getAIPoweredRecommendations();
-                    allLightweightCandidates = allLightweightCandidates.concat(aiCandidates);
-                    console.log(`generateRecommendations: AI candidates found: ${aiCandidates.length}`);
+                        const results = await Promise.allSettled(candidatePromises);
+                        
+                        // Process results with error handling
+                        results.forEach((result, index) => {
+                            const sourceNames = ['Bookshelf', 'AI', 'Trending'];
+                            if (result.status === 'fulfilled') {
+                                allLightweightCandidates = allLightweightCandidates.concat(result.value);
+                                console.log(`generateRecommendations: ${sourceNames[index]} candidates found: ${result.value.length}`);
+                            } else {
+                                console.warn(`generateRecommendations: ${sourceNames[index]} candidates failed:`, result.reason);
+                            }
+                        });
 
-                    // Get lightweight trending candidates
-                    const trendingCandidates = await getTrendingOpenLibraryCandidates(OPEN_LIBRARY_LIGHTWEIGHT_LIMIT);
-                    allLightweightCandidates = allLightweightCandidates.concat(trendingCandidates);
-                    console.log(`generateRecommendations: Trending candidates found: ${trendingCandidates.length}`);
-
-
-                    // Deduplicate lightweight candidates by workKey
-                    const uniqueLightweightCandidates = [];
-                    const seenLightweightWorkKeys = new Set();
-                    for (const candidate of allLightweightCandidates) {
-                        if (candidate.workKey && !seenLightweightWorkKeys.has(candidate.workKey)) {
-                            uniqueLightweightCandidates.push(candidate);
-                            seenLightweightWorkKeys.add(candidate.workKey);
-                        }
+                    } catch (error) {
+                        console.error(`generateRecommendations: Error in attempt ${attempt + 1}:`, error);
+                        // Continue to next attempt instead of failing completely
+                        continue;
                     }
-                    allLightweightCandidates = uniqueLightweightCandidates;
-                    console.log(`generateRecommendations: Attempt ${attempt + 1}, collected ${allLightweightCandidates.length} unique lightweight candidates.`);
 
+                    // FIXED: Deduplicate with better error handling
+                    try {
+                        const uniqueLightweightCandidates = [];
+                        const seenLightweightWorkKeys = new Set();
+                        
+                        for (const candidate of allLightweightCandidates) {
+                            if (candidate?.workKey && !seenLightweightWorkKeys.has(candidate.workKey)) {
+                                uniqueLightweightCandidates.push(candidate);
+                                seenLightweightWorkKeys.add(candidate.workKey);
+                            }
+                        }
+                        allLightweightCandidates = uniqueLightweightCandidates;
+                        console.log(`generateRecommendations: Attempt ${attempt + 1}, collected ${allLightweightCandidates.length} unique candidates.`);
 
-                    if (allLightweightCandidates.length >= TARGET_BOOKS * 5) { // Collect a larger buffer for stricter filtering
-                        console.log("generateRecommendations: Enough lightweight candidates collected, breaking fetch loop.");
-                        break;
+                        // FIXED: Add minimum threshold check to prevent infinite loops
+                        if (allLightweightCandidates.length >= Math.max(TARGET_BOOKS * 2, 10)) { // At least 2x target or minimum 10
+                            console.log("generateRecommendations: Sufficient candidates collected, breaking fetch loop.");
+                            break;
+                        }
+                    } catch (error) {
+                        console.error("generateRecommendations: Error during deduplication:", error);
+                        break; // Exit if we can't even deduplicate
                     }
                 }
 
-                // Shuffle all collected lightweight candidates for random selection
+                // FIXED: Ensure we have some candidates before proceeding
+                if (allLightweightCandidates.length === 0) {
+                    throw new Error("No candidates found from any source");
+                }
+
+                // Shuffle candidates
                 for (let i = allLightweightCandidates.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
                     [allLightweightCandidates[i], allLightweightCandidates[j]] = [allLightweightCandidates[j], allLightweightCandidates[i]];
                 }
-                console.log("generateRecommendations: All lightweight candidates shuffled.");
 
-                // Phase 2: Fetch full details and apply scoring/filters until TARGET_BOOKS are found
+                // Phase 2: FIXED batch processing with strict limits and error handling
                 let finalRecommendations = [];
                 let currentCandidateIndex = 0;
-                const selectedAuthorsInCurrentBatch = new Set(); // To track authors for deprioritization within the current batch
+                const selectedAuthorsInCurrentBatch = new Set();
+                let apiCallCount = 0; // NEW: Track API calls to prevent overload
+                const maxTotalApiCalls = 20; // NEW: Maximum total API calls
 
-                while (finalRecommendations.length < TARGET_BOOKS && currentCandidateIndex < allLightweightCandidates.length) {
-                    const batchToProcess = allLightweightCandidates.slice(currentCandidateIndex, currentCandidateIndex + FULL_DETAIL_FETCH_BATCH_SIZE);
+                while (finalRecommendations.length < TARGET_BOOKS && 
+                       currentCandidateIndex < allLightweightCandidates.length && 
+                       apiCallCount < maxTotalApiCalls) { // FIXED: Added API call limit
+                    
+                    const batchToProcess = allLightweightCandidates.slice(
+                        currentCandidateIndex, 
+                        currentCandidateIndex + FULL_DETAIL_FETCH_BATCH_SIZE
+                    );
                     currentCandidateIndex += FULL_DETAIL_FETCH_BATCH_SIZE;
-                    console.log(`generateRecommendations: Processing batch of ${batchToProcess.length} candidates, starting from index ${currentCandidateIndex - FULL_DETAIL_FETCH_BATCH_SIZE}.`);
+                    
+                    console.log(`generateRecommendations: Processing batch of ${batchToProcess.length} candidates`);
 
-
+                    let batchApiCalls = 0;
                     for (const lightweightBook of batchToProcess) {
+                        // FIXED: Multiple exit conditions to prevent hanging
                         if (finalRecommendations.length >= TARGET_BOOKS) {
-                            console.log("generateRecommendations: Target number of recommendations reached, stopping batch processing.");
+                            console.log("generateRecommendations: Target reached, stopping.");
+                            break;
+                        }
+                        
+                        if (batchApiCalls >= MAX_API_CALLS_PER_BATCH) {
+                            console.log("generateRecommendations: Batch API limit reached, moving to next batch.");
                             break;
                         }
 
-                        if (processedWorkKeys.has(lightweightBook.workKey)) {
-                            console.log(`generateRecommendations: Skipping ${lightweightBook.title} (workKey: ${lightweightBook.workKey}) - already processed.`);
+                        if (apiCallCount >= maxTotalApiCalls) {
+                            console.log("generateRecommendations: Total API limit reached, stopping.");
+                            break;
+                        }
+
+                        if (!lightweightBook?.workKey) {
+                            console.log("generateRecommendations: Skipping book with missing workKey");
                             continue;
                         }
 
-                        const fullBookDetails = await fetchBookDetailsFromOpenLibrary(lightweightBook.workKey);
-                        processedWorkKeys.add(lightweightBook.workKey); // Mark as processed regardless of success
+                        if (processedWorkKeys.has(lightweightBook.workKey)) {
+                            continue;
+                        }
 
-                        if (fullBookDetails) { // fullBookDetails will be null if it failed any internal filters (cover, year)
-                            if (existingBookWorkKeys.has(fullBookDetails.workKey)) {
-                                console.log(`generateRecommendations: Skipping ${fullBookDetails.title} (workKey: ${fullBookDetails.workKey}) - already exists in a list.`);
-                                continue;
+                        try {
+                            // FIXED: Add delay between API calls to prevent rate limiting
+                            if (apiCallCount > 0) {
+                                await new Promise(resolve => setTimeout(resolve, API_DELAY_MS));
                             }
 
-                            // Apply scoring here to decide if it's worth adding, considering author diversity
-                            const lovedBooks = window.bookShelfBooks.filter(book => book.userRating === 'love');
-                            const likedBooks = window.bookShelfBooks.filter(book => book.userRating === 'like');
-                            const score = calculateBookScore(fullBookDetails, lovedBooks, likedBooks, selectedAuthorsInCurrentBatch);
-                            console.log(`generateRecommendations: Scored "${fullBookDetails.title}" (workKey: ${fullBookDetails.workKey}) with score: ${score}`);
+                            // FIXED: Add timeout to fetchBookDetailsFromOpenLibrary
+                            const fullBookDetails = await Promise.race([
+                                fetchBookDetailsFromOpenLibrary(lightweightBook.workKey),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timeout')), 15000))
+                            ]);
+                            
+                            apiCallCount++;
+                            batchApiCalls++;
+                            processedWorkKeys.add(lightweightBook.workKey);
 
-                            // Only add if score is high enough (after deprioritization)
-                            if (score >= MIN_SCORE_THRESHOLD) {
-                                // Call LLM to get pros, cons, summary
-                                const evaluation = await getAIProsConsSummary(fullBookDetails);
-                                finalRecommendations.push({
-                                    ...fullBookDetails,
-                                    score: score,
-                                    pros: evaluation.pros,
-                                    cons: evaluation.cons,
-                                    summary: evaluation.summary // Store summary as well
-                                });
-                                selectedAuthorsInCurrentBatch.add(fullBookDetails.author.toLowerCase());
-                                console.log(`generateRecommendations: Added "${fullBookDetails.title}" to final recommendations (current count: ${finalRecommendations.length}).`);
-                            } else {
-                                console.log(`generateRecommendations: Skipping "${fullBookDetails.title}" - score ${score} below threshold ${MIN_SCORE_THRESHOLD}.`);
+                            if (fullBookDetails && !existingBookWorkKeys.has(fullBookDetails.workKey)) {
+                                // Calculate score
+                                const lovedBooks = window.bookShelfBooks.filter(book => book.userRating === 'love');
+                                const likedBooks = window.bookShelfBooks.filter(book => book.userRating === 'like');
+                                const score = calculateBookScore(fullBookDetails, lovedBooks, likedBooks, selectedAuthorsInCurrentBatch);
+                                
+                                if (score >= MIN_SCORE_THRESHOLD) {
+                                    try {
+                                        // FIXED: Add timeout to AI evaluation with fallback
+                                        let evaluation;
+                                        try {
+                                            evaluation = await Promise.race([
+                                                getAIProsConsSummary(fullBookDetails),
+                                                new Promise((_, reject) => setTimeout(() => reject(new Error('AI timeout')), 15000))
+                                            ]);
+                                            apiCallCount++;
+                                        } catch (aiError) {
+                                            console.warn("AI evaluation failed, using fallback:", aiError);
+                                            // FIXED: Provide fallback evaluation instead of failing
+                                            evaluation = {
+                                                pros: ['Matches your preferred genres'],
+                                                cons: ['Limited information available'],
+                                                summary: 'This book appears to match your reading preferences based on genre and themes.'
+                                            };
+                                        }
+
+                                        finalRecommendations.push({
+                                            ...fullBookDetails,
+                                            score: score,
+                                            pros: evaluation.pros,
+                                            cons: evaluation.cons,
+                                            summary: evaluation.summary
+                                        });
+                                        
+                                        selectedAuthorsInCurrentBatch.add(fullBookDetails.author.toLowerCase());
+                                        console.log(`generateRecommendations: Added "${fullBookDetails.title}" (${finalRecommendations.length}/${TARGET_BOOKS})`);
+                                        
+                                    } catch (evaluationError) {
+                                        console.error("generateRecommendations: Evaluation error:", evaluationError);
+                                        // Continue with next book instead of failing
+                                    }
+                                }
                             }
-                        } else {
-                            console.log(`generateRecommendations: Skipping lightweight book (workKey: ${lightweightBook.workKey}) - fetchBookDetailsFromOpenLibrary returned null.`);
+                        } catch (fetchError) {
+                            console.warn(`generateRecommendations: Failed to fetch details for ${lightweightBook.workKey}:`, fetchError);
+                            processedWorkKeys.add(lightweightBook.workKey); // Mark as processed to avoid retry
+                            // Continue with next book
                         }
                     }
                 }
 
-                // Sort recommendations by score in descending order
+                // Sort and process final recommendations
                 finalRecommendations.sort((a, b) => b.score - a.score);
-                console.log("generateRecommendations: Final recommendations sorted by score:", finalRecommendations);
+                console.log("generateRecommendations: Final recommendations:", finalRecommendations.length);
 
                 if (loader) loader.style.display = 'none';
 
@@ -1610,48 +1716,58 @@
                     let autoApprovedCount = 0;
                     let pendingApprovalCount = 0;
 
+                    // FIXED: Process recommendations with error handling
                     for (const book of finalRecommendations.slice(0, TARGET_BOOKS)) {
-                        // Check against current recommended list before adding to avoid duplicates that might have been added by another admin session
-                        const isDuplicateInRecommended = window.recommendedBooks.some(b => b.workKey === book.workKey);
-                        console.log(`generateRecommendations: Processing "${book.title}" (workKey: ${book.workKey}). Is duplicate in recommended: ${isDuplicateInRecommended}`);
-
-                        if (!isDuplicateInRecommended) {
-                            if (book.score >= AUTO_APPROVE_SCORE_THRESHOLD) {
-                                // Auto-approve: add directly to recommended_books
-                                await setBookInFirestore(book, 'recommended_books');
-                                autoApprovedCount++;
-                                console.log(`generateRecommendations: Auto-approved "${book.title}" (score: ${book.score}).`);
-                            } else {
-                                // Requires admin approval: add to admin_pending_recs
-                                await setBookInFirestore(book, 'admin_pending_recs', window.adminUserId);
-                                pendingApprovalCount++;
-                                console.log(`generateRecommendations: "${book.title}" (score: ${book.score}) added to pending for approval.`);
+                        try {
+                            const isDuplicateInRecommended = window.recommendedBooks.some(b => b.workKey === book.workKey);
+                            
+                            if (!isDuplicateInRecommended) {
+                                if (book.score >= AUTO_APPROVE_SCORE_THRESHOLD) {
+                                    // Auto-approve: add directly to recommended_books
+                                    await setBookInFirestore(book, 'recommended_books');
+                                    autoApprovedCount++;
+                                } else {
+                                    // Requires admin approval: add to admin_pending_recs
+                                    await setBookInFirestore(book, 'admin_pending_recs', window.adminUserId);
+                                    pendingApprovalCount++;
+                                }
                             }
-                        } else {
-                            console.log(`generateRecommendations: Skipping "${book.title}" - already in recommended_books (duplicate check).`);
+                        } catch (firestoreError) {
+                            console.error("generateRecommendations: Failed to save book:", book.title, firestoreError);
+                            // Continue with next book instead of failing completely
                         }
                     }
 
                     let messageText = '';
                     if (autoApprovedCount > 0) {
-                        messageText += `${autoApprovedCount} new high-scoring recommendations automatically added to Beth's list! `;
+                        messageText += `${autoApprovedCount} new high-scoring recommendations added! `;
                     }
                     if (pendingApprovalCount > 0) {
-                        messageText += `${pendingApprovalCount} new recommendations awaiting your approval in the Admin Panel.`;
+                        messageText += `${pendingApprovalCount} recommendations await approval.`;
                     }
                     if (messageText === '') {
-                        messageText = 'No new recommendations found at this time based on Beth\'s preferences and score threshold. Try rating more books or adjusting preferences.';
+                        messageText = 'No new qualifying recommendations found. Try rating more books!';
                     }
                     showMessage(messageText, false, false);
 
                 } else {
-                    showMessage('No new recommendations found at this time based on Beth\'s preferences and score threshold. Try rating more books or adjusting preferences.', false, false);
+                    showMessage('No new recommendations found. Try rating more books or check back later!', false, false);
                 }
-            }
-            catch (error) {
+
+            } catch (error) {
                 console.error('ERROR: Error during recommendation generation:', error);
                 if (loader) loader.style.display = 'none';
-                showMessage('Failed to generate recommendations. Please try again later.', false, false);
+                
+                // FIXED: Provide specific error messages based on error type
+                let errorMessage = 'Failed to generate recommendations. ';
+                if (error.message.includes('Timeout')) {
+                    errorMessage += 'The process took too long - please try again.';
+                } else if (error.message.includes('No candidates')) {
+                    errorMessage += 'Unable to find suitable books at this time.';
+                } else {
+                    errorMessage += 'Please try again later.';
+                }
+                showMessage(errorMessage, false, false);
             }
         }
 
@@ -3578,4 +3694,39 @@
                 <div id="beth-deleted-books-list" class="flex flex-wrap justify-center gap-4">
                     <!-- Beth's deleted books will be dynamically inserted here -->
                 </div>
-                <p id="no-beth-dele
+                <p id="no-beth-deleted-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
+            </div>
+        </section>
+
+        <!-- Admin Flagged Books Section (Initially Hidden and controlled by PIN login) -->
+        <section id="flagged-books-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
+            <div class="max-w-7xl mx-auto">
+                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Admin: Flagged Books</h2>
+                <div id="flagged-books-list" class="flex flex-wrap justify-center gap-4">
+                    <!-- Flagged books (passed/red-flagged) will be dynamically inserted here -->
+                </div>
+                <p id="no-flagged-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
+            </div>
+        </section>
+
+        <!-- Admin Approved Books Section (Initially Hidden and controlled by PIN login) -->
+        <section id="admin-approved-books-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
+            <div class="max-w-7xl mx-auto">
+                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Admin: Approved Books</h2>
+                <div id="admin-approved-books-list" class="flex flex-wrap justify-center gap-4">
+                    <!-- Admin approved books will be dynamically inserted here -->
+                </div>
+                <p id="no-admin-approved-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
+            </div>
+        </section>
+
+        <!-- Footer Section -->
+        <footer class="bg-gray-800 text-gray-300 py-8 px-4 sm:px-6 lg:px-8 mt-auto">
+            <div class="max-w-7xl mx-auto text-center">
+                <p>&copy; <span id="current-year"></span> Beth's Book Club. All rights reserved.</p>
+                <p class="text-sm mt-2">Designed with ❤️ for you.</p>
+            </div>
+        </footer>
+    </div>
+</body>
+</html>
