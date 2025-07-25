@@ -3079,6 +3079,19 @@
                 window.auth = getAuth(window.firebaseApp); // Auth service initialized, but not used for PIN login
                 window.analytics = getAnalytics(window.firebaseApp); // Initialize analytics
                 console.log("Firebase initialized successfully.");
+                
+                try {
+    window.firebaseApp = initializeApp(firebaseConfig);
+    window.db = getFirestore(window.firebaseApp);
+    window.auth = getAuth(window.firebaseApp); // Auth service initialized, but not used for PIN login
+    window.analytics = getAnalytics(window.firebaseApp); // Initialize analytics
+    console.log("Firebase initialized successfully.");
+} catch (error) {
+    console.error("ERROR: Failed to initialize Firebase:", error);
+    showMessage(`Failed to initialize Firebase. Please check your console for errors.`, false, true);
+    return; // Stop execution if Firebase initialization fails
+}
+                
             } catch (error) {
                 console.error("ERROR: Failed to initialize Firebase:", error);
                 showMessage(`Failed to initialize Firebase. Please check your console for errors.`, false, true);
