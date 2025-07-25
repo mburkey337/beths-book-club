@@ -36,6 +36,9 @@
         // NEW: Flag to control when display functions can execute
         window.uiReadyForDisplay = false;
 
+        // NEW: Flag to track if listeners are ready
+        window.listenersReady = false;
+
         // Fixed PINs for login
         const BETH_PIN = '7288'; // Corrected Beth's PIN
         const ADMIN_PIN = '2384'; // Admin PIN
@@ -62,6 +65,8 @@
         const MIGRATED_BETH_NEGATIVE_FEEDBACK_FLAG = 'migrated_beth_negative_feedback_v1';
         const MIGRATED_INITIAL_BOOKSHELF_FLAG = 'migrated_initial_bookshelf_v1';
 
+        // FIXED: Global AbortController tracking for proper cleanup
+        const activeAbortControllers = new Set();
 
         // --- Firestore Collection Paths ---
         // Helper function to get collection path based on whether it's public or user-specific
@@ -132,7 +137,6 @@
                 // For this PIN-based system, all admin-specific data will use BETH_FIREBASE_USER_ID
                 userId = window.adminUserId;
             }
-
 
             try {
                 const docRef = doc(window.db, getCollectionPath(collectionName, userId), book.workKey); // Pass book.workKey as doc ID
@@ -250,6 +254,20 @@
             }
         }
 
+        // FIXED: Wait for listeners to be ready
+        function waitForListenersReady(maxWaitTime = 5000) {
+            return new Promise((resolve) => {
+                const startTime = Date.now();
+                const checkReady = () => {
+                    if (window.listenersReady || (Date.now() - startTime) > maxWaitTime) {
+                        resolve(window.listenersReady);
+                    } else {
+                        setTimeout(checkReady, 100);
+                    }
+                };
+                checkReady();
+            });
+        }
 
         // --- Firestore Real-time Listeners ---
 
@@ -264,6 +282,17 @@
             }
             console.log("Firestore: Setting up real-time listeners...");
 
+            let listenersSetupCount = 0;
+            const totalListeners = window.adminUserId ? 6 : 3; // 3 public + 3 admin-specific
+
+            function checkAllListenersReady() {
+                listenersSetupCount++;
+                if (listenersSetupCount >= totalListeners) {
+                    window.listenersReady = true;
+                    console.log("All Firestore listeners are ready");
+                }
+            }
+
             // Recommended Books (Public)
             onSnapshot(collection(window.db, getCollectionPath('recommended_books')), (snapshot) => {
                 window.recommendedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -272,6 +301,7 @@
                 if (window.uiReadyForDisplay) {
                     safeDisplayFunction(displayRecommendedBooks, 'displayRecommendedBooks');
                 }
+                checkAllListenersReady();
             });
 
             // Bookshelf Books (Public)
@@ -282,6 +312,7 @@
                 if (window.uiReadyForDisplay) {
                     safeDisplayFunction(displayBookShelfBooks, 'displayBookShelfBooks');
                 }
+                checkAllListenersReady();
             });
 
             // Beth's Deleted Books (Public)
@@ -292,6 +323,7 @@
                 if (window.uiReadyForDisplay) {
                     safeDisplayFunction(displayBethsDeletedBooks, 'displayBethsDeletedBooks');
                 }
+                checkAllListenersReady();
             });
 
             // Admin-specific listeners (only if adminUserId is available)
@@ -304,6 +336,7 @@
                     if (window.uiReadyForDisplay) {
                         safeDisplayFunction(displayFlaggedBooks, 'displayFlaggedBooks');
                     }
+                    checkAllListenersReady();
                 });
 
                 // Admin Alerts (Admin Specific)
@@ -314,6 +347,7 @@
                     if (window.uiReadyForDisplay) {
                         safeDisplayFunction(displayAdminAlerts, 'displayAdminAlerts');
                     }
+                    checkAllListenersReady();
                 });
 
                 // Admin Pending Recommendations (Admin Specific)
@@ -326,6 +360,7 @@
                     if (window.uiReadyForDisplay) {
                         safeDisplayFunction(displayAdminPendingRecommendations, 'displayAdminPendingRecommendations');
                     }
+                    checkAllListenersReady();
                 });
 
                 // Admin Approved Books (Admin Specific)
@@ -336,12 +371,12 @@
                     if (window.uiReadyForDisplay) {
                         safeDisplayFunction(displayAdminApprovedBooks, 'displayAdminApprovedBooks');
                     }
+                    checkAllListenersReady();
                 });
             } else {
                 console.warn("Skipping setup for user-specific Firestore listeners as adminUserId is not available.");
             }
         }
-
 
         // Your email address where you want to receive notifications (currently unused, but kept for potential future use)
         const YOUR_EMAIL_ADDRESS = 'mburkey337@gmail.com';
@@ -393,7 +428,7 @@
         }
 
         /**
-         * FIXED: Enhanced fetchBookDetailsFromOpenLibrary with better error handling
+         * FIXED: Enhanced fetchBookDetailsFromOpenLibrary with better error handling and cleanup
          */
         async function fetchBookDetailsFromOpenLibrary(workKey) {
             if (!workKey) {
@@ -401,9 +436,11 @@
                 return null;
             }
             
+            // FIXED: Create AbortController and add to tracking set
+            const controller = new AbortController();
+            activeAbortControllers.add(controller);
+            
             try {
-                // FIXED: Add AbortController for timeout handling
-                const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
                 
                 const response = await fetch(`${OPEN_LIBRARY_WORK_URL}${workKey}.json`, {
@@ -442,22 +479,29 @@
                     }
                 }
 
-                // FIXED: Simplified author fetching with timeout
+                // FIXED: Simplified author fetching with timeout and proper cleanup
                 let authorName = 'Unknown Author';
                 if (data.authors && data.authors.length > 0 && data.authors[0].author && data.authors[0].author.key) {
                     try {
                         const authorController = new AbortController();
-                        const authorTimeoutId = setTimeout(() => authorController.abort(), 5000); // 5 second timeout for author
+                        activeAbortControllers.add(authorController);
                         
-                        const authorResponse = await fetch(`https://openlibrary.org${data.authors[0].author.key}.json`, {
-                            signal: authorController.signal
-                        });
-                        
-                        clearTimeout(authorTimeoutId);
-                        
-                        if (authorResponse.ok) {
-                            const authorData = await authorResponse.json();
-                            authorName = authorData.name || 'Unknown Author';
+                        try {
+                            const authorTimeoutId = setTimeout(() => authorController.abort(), 5000); // 5 second timeout for author
+                            
+                            const authorResponse = await fetch(`https://openlibrary.org${data.authors[0].author.key}.json`, {
+                                signal: authorController.signal
+                            });
+                            
+                            clearTimeout(authorTimeoutId);
+                            
+                            if (authorResponse.ok) {
+                                const authorData = await authorResponse.json();
+                                authorName = authorData.name || 'Unknown Author';
+                            }
+                        } finally {
+                            // FIXED: Always clean up author controller
+                            activeAbortControllers.delete(authorController);
                         }
                     } catch (authorError) {
                         console.warn("Failed to fetch author details, using fallback");
@@ -488,6 +532,9 @@
                     console.error(`ERROR: Error fetching full details for work ${workKey}:`, error);
                 }
                 return null;
+            } finally {
+                // FIXED: Always clean up controller
+                activeAbortControllers.delete(controller);
             }
         }
 
@@ -497,19 +544,21 @@
          * @param {string} query - The search query (title or author).
          */
         async function searchBooks(query) {
-            const loader = document.getElementById('search-loader');
-            const message = document.getElementById('search-message');
-            const searchResultsContainer = document.getElementById('search-results');
+            const loader = safeGetElementSync('search-loader');
+            const message = safeGetElementSync('search-message');
+            const searchResultsContainer = safeGetElementSync('search-results');
 
-            searchResultsContainer.innerHTML = ''; // Clear previous results
-            message.classList.add('hidden');
-            loader.style.display = 'block'; // Show loader
+            if (searchResultsContainer) searchResultsContainer.innerHTML = ''; // Clear previous results
+            if (message) message.classList.add('hidden');
+            if (loader) loader.style.display = 'block'; // Show loader
 
             // Prevent searching with URLs
             if (query.startsWith('http://') || query.startsWith('https://')) {
-                loader.style.display = 'none';
-                message.textContent = 'Please enter only the book title or author, not a full URL.';
-                message.classList.remove('hidden');
+                if (loader) loader.style.display = 'none';
+                if (message) {
+                    message.textContent = 'Please enter only the book title or author, not a full URL.';
+                    message.classList.remove('hidden');
+                }
                 return;
             }
 
@@ -519,7 +568,7 @@
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 const data = await response.json();
-                loader.style.display = 'none'; // Hide loader
+                if (loader) loader.style.display = 'none'; // Hide loader
                 console.log('DEBUG: Open Library Search Raw Data:', data);
 
                 let processedResults = [];
@@ -546,15 +595,19 @@
                 if (processedResults.length > 0) {
                     displaySearchResults(processedResults);
                 } else {
-                    message.textContent = 'No books found. Try a different search term.';
-                    message.classList.remove('hidden');
+                    if (message) {
+                        message.textContent = 'No books found. Try a different search term.';
+                        message.classList.remove('hidden');
+                    }
                 }
             }
             catch (error) {
                 console.error('Error fetching books from Open Library:', error);
-                loader.style.display = 'none'; // Hide loader
-                message.textContent = 'Failed to load search results. Please try again later.';
-                message.classList.remove('hidden');
+                if (loader) loader.style.display = 'none'; // Hide loader
+                if (message) {
+                    message.textContent = 'Failed to load search results. Please try again later.';
+                    message.classList.remove('hidden');
+                }
             }
         }
 
@@ -563,7 +616,9 @@
          * @param {Array<Object>} results - An array of book objects to display.
          */
         function displaySearchResults(results) {
-            const searchResultsContainer = document.getElementById('search-results');
+            const searchResultsContainer = safeGetElementSync('search-results');
+            if (!searchResultsContainer) return;
+            
             searchResultsContainer.innerHTML = ''; // Clear previous results
             console.log('DEBUG: Displaying Search Results:', results);
 
@@ -604,11 +659,6 @@
                 `;
                 searchResultsContainer.appendChild(bookCard);
             });
-
-            // Attach event listeners to the newly created buttons
-            searchResultsContainer.querySelectorAll('.add-to-curated-list-btn').forEach(button => {
-                button.addEventListener('click', addBookToCuratedList);
-            });
         }
 
         /**
@@ -617,11 +667,12 @@
          */
         function displayRecommendedBooks() {
             // Data is now sourced from window.recommendedBooks (updated by Firestore listener)
-            const bookListContainer = document.getElementById('book-list');
-            const noBooksMessage = document.getElementById('no-books-message');
-            const recommendedHeading = document.getElementById('recommended-reads-heading');
+            const bookListContainer = safeGetElementSync('book-list');
+            const noBooksMessage = safeGetElementSync('no-books-message');
+            const recommendedHeading = safeGetElementSync('recommended-reads-heading');
             // Check if the admin panel is currently visible to determine admin mode
-            const isAdminMode = !document.getElementById('admin-search-panel')?.classList.contains('hidden');
+            const adminPanel = safeGetElementSync('admin-search-panel');
+            const isAdminMode = adminPanel && !adminPanel.classList.contains('hidden');
             
             console.log("displayRecommendedBooks: Called.");
 
@@ -633,17 +684,16 @@
                 console.log("displayRecommendedBooks: Updated heading.");
             }
 
-            if (bookListContainer) {
-                bookListContainer.innerHTML = ''; // Clear existing content
-            } else {
+            if (!bookListContainer) {
                 console.error("ERROR: 'book-list' element not found. Cannot display recommended books.");
                 return; // Exit if container not found
             }
 
+            bookListContainer.innerHTML = ''; // Clear existing content
+
             // Filter out books that are already on the bookshelf (rated 'like', 'love', 'picked', or 'passed')
             const booksToDisplay = window.recommendedBooks.filter(book => book.userRating !== 'like' && book.userRating !== 'love' && book.userRating !== 'picked' && book.userRating !== 'passed');
             console.log("displayRecommendedBooks: Books to display after filtering:", booksToDisplay.length);
-
 
             if (booksToDisplay.length === 0) {
                 if (noBooksMessage) {
@@ -693,25 +743,6 @@
                     `;
                     bookListContainer.appendChild(bookCard);
                 });
-
-                // Attach event listeners to the newly created buttons
-                bookListContainer.querySelectorAll('.pick-book-btn').forEach(button => {
-                    button.addEventListener('click', (event) => handlePickBook(event.currentTarget.dataset.workkey));
-                });
-                bookListContainer.querySelectorAll('.get-insight-btn').forEach(button => {
-                    button.addEventListener('click', getPersonalizedInsight);
-                });
-                bookListContainer.querySelectorAll('.pass-book-btn').forEach(button => {
-                    button.addEventListener('click', (event) => handlePassBook(event.currentTarget.dataset.workkey));
-                });
-                if (isAdminMode) {
-                    bookListContainer.querySelectorAll('.remove-admin-button').forEach(button => {
-                        button.addEventListener('click', (event) => removeBookFromRecommended(event.currentTarget.dataset.workkey));
-                    });
-                    bookListContainer.querySelectorAll('.red-flag-btn').forEach(button => {
-                        button.addEventListener('click', (event) => handleRedFlag(event.currentTarget.dataset.workkey, event.currentTarget.dataset.author));
-                    });
-                }
             }
         }
 
@@ -733,16 +764,15 @@
          */
         function displayBookShelfBooks() {
             // Data is now sourced from window.bookShelfBooks
-            const bookshelfListContainer = document.getElementById('bookshelf-list');
-            const noBookshelfMessage = document.getElementById('no-bookshelf-message');
+            const bookshelfListContainer = safeGetElementSync('bookshelf-list');
+            const noBookshelfMessage = safeGetElementSync('no-bookshelf-message');
             
-            if (bookshelfListContainer) {
-                bookshelfListContainer.innerHTML = ''; // Clear existing content
-            } else {
+            if (!bookshelfListContainer) {
                 console.error("ERROR: 'bookshelf-list' element not found. Cannot display bookshelf books.");
                 return; // Exit if container not found
             }
 
+            bookshelfListContainer.innerHTML = ''; // Clear existing content
             console.log("displayBookShelfBooks: Called. Books in bookshelf:", window.bookShelfBooks.length);
 
             if (window.bookShelfBooks.length === 0) {
@@ -824,28 +854,16 @@
                     `;
                     bookshelfListContainer.appendChild(bookCard);
                 });
-
-                // Attach event listeners to the newly created buttons
-                bookshelfListContainer.querySelectorAll('.update-rating-btn').forEach(button => {
-                    button.addEventListener('click', (event) => {
-                        const workKey = event.currentTarget.closest('.review-buttons').dataset.bookWorkkey;
-                        const rating = event.currentTarget.dataset.rating;
-                        updateUserRating(workKey, rating);
-                    });
-                });
-                bookshelfListContainer.querySelectorAll('.remove-from-bookshelf-btn').forEach(button => {
-                    button.addEventListener('click', (event) => removeBookFromBookshelf(event.currentTarget.dataset.workkey));
-                });
             }
         }
 
         /**
          * Displays books Beth has personally deleted from her bookshelf.
          */
-        async function displayBethsDeletedBooks() {
+        function displayBethsDeletedBooks() {
             // Data is now sourced from window.bethDeletedBooks
-            const bethDeletedBooksListContainer = await safeGetElement('beth-deleted-books-list');
-            const noBethDeletedBooksMessage = await safeGetElement('no-beth-deleted-books-message');
+            const bethDeletedBooksListContainer = safeGetElementSync('beth-deleted-books-list');
+            const noBethDeletedBooksMessage = safeGetElementSync('no-beth-deleted-books-message');
             
             if (!bethDeletedBooksListContainer || !noBethDeletedBooksMessage) {
                 console.error("ERROR: 'beth-deleted-books-list' or 'no-beth-deleted-books-message' element not found. Cannot display Beth's deleted books.");
@@ -884,21 +902,16 @@
                     `;
                     bethDeletedBooksListContainer.appendChild(bookCard);
                 });
-
-                // Attach event listeners to the newly created buttons
-                bethDeletedBooksListContainer.querySelectorAll('.restore-beth-deleted-btn').forEach(button => {
-                    button.addEventListener('click', (event) => restoreBookFromBethDeleted(event.currentTarget.dataset.workkey));
-                });
             }
         }
 
         /**
          * Displays books that have been flagged by the admin (passed or red-flagged).
          */
-        async function displayFlaggedBooks() {
+        function displayFlaggedBooks() {
             // Data is now sourced from window.flaggedBooks
-            const flaggedBooksListContainer = await safeGetElement('flagged-books-list');
-            const noFlaggedBooksMessage = await safeGetElement('no-flagged-books-message');
+            const flaggedBooksListContainer = safeGetElementSync('flagged-books-list');
+            const noFlaggedBooksMessage = safeGetElementSync('no-flagged-books-message');
             
             if (!flaggedBooksListContainer || !noFlaggedBooksMessage) {
                 console.error("ERROR: 'flagged-books-list' or 'no-flagged-books-message' element not found. Cannot display flagged books.");
@@ -939,11 +952,6 @@
                     `;
                     flaggedBooksListContainer.appendChild(bookCard);
                 });
-
-                // Attach event listeners to the newly created buttons
-                flaggedBooksListContainer.querySelectorAll('.restore-flagged-btn').forEach(button => {
-                    button.addEventListener('click', (event) => restoreBookFromFlagged(event.currentTarget.dataset.workkey));
-                });
             }
         }
 
@@ -961,7 +969,6 @@
             let descriptionText = description;
             const actualRating = rating !== undefined ? parseFloat(rating) : null;
             const actualFirstPublishYear = first_publish_year !== undefined && typeof first_publish_year === 'number' ? first_publish_year : null;
-
 
             // If description is still generic, try to fetch a better one
             if (descriptionText === '' || descriptionText.trim() === '') {
@@ -994,7 +1001,14 @@
                 await setBookInFirestore(newBook, 'recommended_books');
                 showMessage(`"${title}" has been added to Beth's Book Club!`, false, false);
                 // Re-display search results to reflect the addition (optional, but good for UX)
-                displaySearchResults(Array.from(document.getElementById('search-results').children).map(card => JSON.parse(card.querySelector('.add-to-curated-list-btn').dataset.bookJson)));
+                const searchResultsContainer = safeGetElementSync('search-results');
+                if (searchResultsContainer) {
+                    const searchResults = Array.from(searchResultsContainer.children).map(card => {
+                        const button = card.querySelector('.add-to-curated-list-btn');
+                        return button ? JSON.parse(button.dataset.bookJson) : null;
+                    }).filter(Boolean);
+                    displaySearchResults(searchResults);
+                }
             } else {
                 showMessage(`"${title}" is already in Beth's Book Club!`, false, false);
             }
@@ -1004,17 +1018,17 @@
          * Manually adds a book to the curated list using an Open Library Work URL (admin action).
          */
         async function addBookFromOpenLibraryUrl() {
-            const urlInput = document.getElementById('manual-add-url-input');
-            const url = urlInput.value.trim();
-            const loader = document.getElementById('search-loader');
-            const message = document.getElementById('search-message');
+            const urlInput = safeGetElementSync('manual-add-url-input');
+            const url = urlInput ? urlInput.value.trim() : '';
+            const loader = safeGetElementSync('search-loader');
+            const message = safeGetElementSync('search-message');
 
-            message.classList.add('hidden');
-            loader.style.display = 'block';
+            if (message) message.classList.add('hidden');
+            if (loader) loader.style.display = 'block';
 
             const workKeyMatch = url.match(/\/works\/(OL\d+W)/);
             if (!workKeyMatch || !workKeyMatch[1]) {
-                loader.style.display = 'none';
+                if (loader) loader.style.display = 'none';
                 showMessage('Invalid Open Library Work URL. Please provide a URL like https://openlibrary.org/works/OL12345W', false, false);
                 return;
             }
@@ -1025,7 +1039,7 @@
                 const bookDetails = await fetchBookDetailsFromOpenLibrary(workKey);
 
                 if (!bookDetails) {
-                    loader.style.display = 'none';
+                    if (loader) loader.style.display = 'none';
                     showMessage('Failed to retrieve book details from the provided Open Library URL. Please check the URL and try again.', false, false);
                     return;
                 }
@@ -1051,7 +1065,7 @@
                 if (!isDuplicate) {
                     await setBookInFirestore(newBook, 'recommended_books');
                     showMessage(`"${newBook.title}" has been manually added to Beth's Book Club!`, false, false);
-                    urlInput.value = ''; // Clear input
+                    if (urlInput) urlInput.value = ''; // Clear input
                     showView('recommendations-view'); // Ensure we are on the recommendations view
                 } else {
                     showMessage(`"${newBook.title}" is already in Beth's Book Club!`, false, false);
@@ -1063,7 +1077,7 @@
                 showMessage('An error occurred while trying to add the book. Please try again.', false, false);
             }
             finally {
-                loader.style.display = 'none';
+                if (loader) loader.style.display = 'none';
             }
         }
 
@@ -1146,9 +1160,11 @@
 
             const feedbackPrompt = `Why are you flagging "${bookToFlag.title}" by ${bookAuthor}? (e.g., "romance", "magic", "self-help")`;
 
-            const messageBox = document.getElementById('message-box');
-            const messageText = document.getElementById('message-text');
-            const closeButton = document.getElementById('message-box-close');
+            const messageBox = safeGetElementSync('message-box');
+            const messageText = safeGetElementSync('message-text');
+            const closeButton = safeGetElementSync('message-box-close');
+
+            if (!messageBox || !messageText || !closeButton) return;
 
             messageText.innerHTML = `
                 <p class="mb-4">${feedbackPrompt}</p>
@@ -1162,26 +1178,34 @@
 
             messageBox.style.display = 'block';
 
-            document.getElementById('submit-flag-reason').addEventListener('click', async () => {
-                const reason = document.getElementById('flag-reason-input').value.trim();
-                if (reason) {
-                    await addNegativeFeedbackToFirestore(reason.toLowerCase());
-                    showMessage(`Feedback received: "${reason}". AI will learn from this!`, false, false);
-                } else {
-                    showMessage('No feedback provided.', false, false);
-                }
-                messageBox.style.display = 'none'; // Hide the modal
+            const submitButton = document.getElementById('submit-flag-reason');
+            const cancelButton = document.getElementById('cancel-flag');
 
-                // Move the book to flagged books
-                await deleteBookFromFirestore(bookWorkKey, 'recommended_books');
-                bookToFlag.userRating = 'flagged'; // Mark as flagged
-                bookToFlag.flaggedReason = reason || 'No reason provided'; // Store the reason
-                await setBookInFirestore(bookToFlag, 'flagged_books', window.adminUserId);
-            }, { once: true }); // Use { once: true } to prevent multiple listeners
+            if (submitButton) {
+                submitButton.addEventListener('click', async () => {
+                    const reasonInput = document.getElementById('flag-reason-input');
+                    const reason = reasonInput ? reasonInput.value.trim() : '';
+                    if (reason) {
+                        await addNegativeFeedbackToFirestore(reason.toLowerCase());
+                        showMessage(`Feedback received: "${reason}". AI will learn from this!`, false, false);
+                    } else {
+                        showMessage('No feedback provided.', false, false);
+                    }
+                    messageBox.style.display = 'none'; // Hide the modal
 
-            document.getElementById('cancel-flag').addEventListener('click', () => {
-                messageBox.style.display = 'none';
-            }, { once: true });
+                    // Move the book to flagged books
+                    await deleteBookFromFirestore(bookWorkKey, 'recommended_books');
+                    bookToFlag.userRating = 'flagged'; // Mark as flagged
+                    bookToFlag.flaggedReason = reason || 'No reason provided'; // Store the reason
+                    await setBookInFirestore(bookToFlag, 'flagged_books', window.adminUserId);
+                }, { once: true }); // Use { once: true } to prevent multiple listeners
+            }
+
+            if (cancelButton) {
+                cancelButton.addEventListener('click', () => {
+                    messageBox.style.display = 'none';
+                }, { once: true });
+            }
         }
 
         /**
@@ -1497,14 +1521,13 @@
             return score;
         }
 
-
         /**
          * FIXED: Generates new book recommendations using a multi-phase approach with proper error handling and loop controls
          */
         async function generateRecommendations() {
-            const loader = document.getElementById('search-loader');
-            const message = document.getElementById('search-message');
-            const searchResultsContainer = document.getElementById('search-results');
+            const loader = safeGetElementSync('search-loader');
+            const message = safeGetElementSync('search-message');
+            const searchResultsContainer = safeGetElementSync('search-results');
 
             if (searchResultsContainer) searchResultsContainer.innerHTML = '';
             if (message) message.classList.add('hidden');
@@ -1833,7 +1856,6 @@
             } else {
                 console.log("getBookshelfBasedRecommendations: Generated queries from bookshelf:", Array.from(queries));
             }
-
 
             for (const q of Array.from(queries)) {
                 const fullQuery = `${q} AND language:eng`;
@@ -2186,10 +2208,10 @@
          * Displays the evaluation in a message box and offers an option to add to recommendations.
          */
         async function evaluateBookForBeth() {
-            const urlInput = document.getElementById('evaluate-book-url-input');
-            const url = urlInput.value.trim();
-            const loader = document.getElementById('search-loader');
-            const message = document.getElementById('search-message');
+            const urlInput = safeGetElementSync('evaluate-book-url-input');
+            const url = urlInput ? urlInput.value.trim() : '';
+            const loader = safeGetElementSync('search-loader');
+            const message = safeGetElementSync('search-message');
 
             if (message) message.classList.add('hidden');
             if (loader) loader.style.display = 'block';
@@ -2259,7 +2281,7 @@
                             }
                         };
                         addBookToCuratedList(syntheticEvent);
-                        const messageBox = document.getElementById('message-box');
+                        const messageBox = safeGetElementSync('message-box');
                         if (messageBox) {
                             messageBox.style.display = 'none'; // Close evaluation message
                             messageBox.classList.remove('llm-insight');
@@ -2267,7 +2289,6 @@
                         if (urlInput) urlInput.value = ''; // Clear input
                     }, { once: true }); // Use { once: true } to prevent multiple listeners
                 }
-
 
             }
             catch (error) {
@@ -2279,16 +2300,15 @@
             }
         }
 
-
         /**
          * Controls the visibility of admin-specific UI elements.
          * This function is called during `initializeAppContent` based on the login PIN.
          * @param {boolean} showAdmin - True to show admin elements, false to hide them.
          */
         function setAdminUIVisibility(showAdmin) {
-            const adminPanel = document.getElementById('admin-search-panel');
-            const navFlaggedBooks = document.getElementById('nav-flagged-books');
-            const navAdminApprovedBooks = document.getElementById('nav-admin-approved-books');
+            const adminPanel = safeGetElementSync('admin-search-panel');
+            const navFlaggedBooks = safeGetElementSync('nav-flagged-books');
+            const navAdminApprovedBooks = safeGetElementSync('nav-admin-approved-books');
 
             if (adminPanel) adminPanel.classList.toggle('hidden', !showAdmin);
             if (navFlaggedBooks) navFlaggedBooks.classList.toggle('hidden', !showAdmin);
@@ -2297,11 +2317,11 @@
             console.log(`setAdminUIVisibility: Admin panel and navigation set to ${showAdmin ? 'visible' : 'hidden'}.`);
 
             // Clear search results and message when admin panel visibility changes
-            const searchResults = document.getElementById('search-results');
-            const searchInput = document.getElementById('search-input');
-            const manualAddUrlInput = document.getElementById('manual-add-url-input');
-            const evaluateBookUrlInput = document.getElementById('evaluate-book-url-input');
-            const searchMessage = document.getElementById('search-message');
+            const searchResults = safeGetElementSync('search-results');
+            const searchInput = safeGetElementSync('search-input');
+            const manualAddUrlInput = safeGetElementSync('manual-add-url-input');
+            const evaluateBookUrlInput = safeGetElementSync('evaluate-book-url-input');
+            const searchMessage = safeGetElementSync('search-message');
 
             if (searchResults) searchResults.innerHTML = '';
             if (searchInput) searchInput.value = '';
@@ -2314,16 +2334,15 @@
             // and will be triggered explicitly after splash screen is dismissed.
         }
 
-
         /**
          * Displays AI-generated recommendations that are awaiting admin approval.
          * Includes options to approve, remove, or red flag these books.
          */
-        async function displayAdminPendingRecommendations() {
+        function displayAdminPendingRecommendations() {
             // Data is now sourced from window.adminPendingRecommendations
-            const pendingRecsContainer = await safeGetElement('admin-pending-recs-container');
-            const pendingRecsList = await safeGetElement('admin-pending-recs-list');
-            const noPendingRecsMessage = await safeGetElement('no-admin-pending-recs-message');
+            const pendingRecsContainer = safeGetElementSync('admin-pending-recs-container');
+            const pendingRecsList = safeGetElementSync('admin-pending-recs-list');
+            const noPendingRecsMessage = safeGetElementSync('no-admin-pending-recs-message');
 
             // Add null checks for robustness
             if (!pendingRecsContainer || !pendingRecsList || !noPendingRecsMessage) {
@@ -2364,7 +2383,6 @@
                     ` : '';
                     const publishYearHtml = book.first_publish_year !== null ? `<p class="text-gray-600 text-xs mt-1">Published: ${escapeHtmlAttribute(book.first_publish_year)}</p>` : '';
 
-
                     pendingItem.innerHTML = `
                         <div class="book-info">
                             "${escapeHtmlAttribute(book.title)}" by ${escapeHtmlAttribute(book.author)} (Score: ${book.score}/100)
@@ -2382,27 +2400,16 @@
                     `;
                     pendingRecsList.appendChild(pendingItem);
                 });
-
-                // Attach event listeners to the newly created buttons
-                pendingRecsList.querySelectorAll('.approve-for-beth-btn').forEach(button => {
-                    button.addEventListener('click', approveBookForBeth);
-                });
-                pendingRecsList.querySelectorAll('.skip-pending-btn').forEach(button => {
-                    button.addEventListener('click', (event) => skipPendingBook(event.currentTarget.dataset.workkey));
-                });
-                pendingRecsList.querySelectorAll('.red-flag-pending-btn').forEach(button => {
-                    button.addEventListener('click', (event) => redFlagBookFromPending(event.currentTarget.dataset.workkey, event.currentTarget.dataset.author));
-                });
             }
         }
 
         /**
          * Displays books that have been approved by the admin but not yet moved to Beth's recommendations.
          */
-        async function displayAdminApprovedBooks() {
+        function displayAdminApprovedBooks() {
             // Data is now sourced from window.adminApprovedBooks
-            const approvedBooksList = await safeGetElement('admin-approved-books-list');
-            const noApprovedBooksMessage = await safeGetElement('no-admin-approved-books-message');
+            const approvedBooksList = safeGetElementSync('admin-approved-books-list');
+            const noApprovedBooksMessage = safeGetElementSync('no-admin-approved-books-message');
 
             // Add more specific null checks for debugging
             if (!approvedBooksList || !noApprovedBooksMessage) {
@@ -2441,7 +2448,6 @@
                     ` : '';
                     const publishYearHtml = book.first_publish_year !== null ? `<p class="text-gray-600 text-xs mt-1">Published: ${escapeHtmlAttribute(book.first_publish_year)}</p>` : '';
 
-
                     approvedItem.innerHTML = `
                         <div class="book-info">
                             "${escapeHtmlAttribute(book.title)}" by ${escapeHtmlAttribute(book.author)} (Score: ${book.score}/100)
@@ -2457,14 +2463,6 @@
                         </div>
                     `;
                     approvedBooksList.appendChild(approvedItem);
-                });
-
-                // Attach event listeners to the newly created buttons
-                approvedBooksList.querySelectorAll('.move-to-beths-recs-btn').forEach(button => {
-                    button.addEventListener('click', moveToBethsRecommendations);
-                });
-                approvedBooksList.querySelectorAll('.remove-from-approved-btn').forEach(button => {
-                    button.addEventListener('click', (event) => removeBookFromApproved(event.currentTarget.dataset.workkey));
                 });
             }
         }
@@ -2548,9 +2546,11 @@
 
             const feedbackPrompt = `Why are you red-flagging "${bookToFlag.title}" by ${bookAuthor} from pending? (e.g., "romance", "magic", "self-help")`;
 
-            const messageBox = document.getElementById('message-box');
-            const messageText = document.getElementById('message-text');
-            const closeButton = document.getElementById('message-box-close');
+            const messageBox = safeGetElementSync('message-box');
+            const messageText = safeGetElementSync('message-text');
+            const closeButton = safeGetElementSync('message-box-close');
+
+            if (!messageBox || !messageText || !closeButton) return;
 
             messageText.innerHTML = `
                 <p class="mb-4">${feedbackPrompt}</p>
@@ -2564,28 +2564,35 @@
 
             messageBox.style.display = 'block';
 
-            document.getElementById('submit-flag-reason').addEventListener('click', async () => {
-                const reason = document.getElementById('flag-reason-input').value.trim();
-                if (reason) {
-                    await addNegativeFeedbackToFirestore(reason.toLowerCase());
-                    showMessage(`Feedback received: "${reason}". AI will learn from this!`, false, false);
-                } else {
-                    showMessage('No feedback provided.', false, false);
-                }
-                messageBox.style.display = 'none'; // Hide the modal
+            const submitButton = document.getElementById('submit-flag-reason');
+            const cancelButton = document.getElementById('cancel-flag');
 
-                // Move the book to flagged books from pending
-                await deleteBookFromFirestore(bookWorkKey, 'admin_pending_recs', window.adminUserId);
-                bookToFlag.userRating = 'flagged'; // Mark as flagged
-                bookToFlag.flaggedReason = reason || 'No reason provided'; // Store the reason
-                await setBookInFirestore(bookToFlag, 'flagged_books', window.adminUserId);
-            }, { once: true });
+            if (submitButton) {
+                submitButton.addEventListener('click', async () => {
+                    const reasonInput = document.getElementById('flag-reason-input');
+                    const reason = reasonInput ? reasonInput.value.trim() : '';
+                    if (reason) {
+                        await addNegativeFeedbackToFirestore(reason.toLowerCase());
+                        showMessage(`Feedback received: "${reason}". AI will learn from this!`, false, false);
+                    } else {
+                        showMessage('No feedback provided.', false, false);
+                    }
+                    messageBox.style.display = 'none'; // Hide the modal
 
-            document.getElementById('cancel-flag').addEventListener('click', () => {
-                messageBox.style.display = 'none';
-            }, { once: true });
+                    // Move the book to flagged books from pending
+                    await deleteBookFromFirestore(bookWorkKey, 'admin_pending_recs', window.adminUserId);
+                    bookToFlag.userRating = 'flagged'; // Mark as flagged
+                    bookToFlag.flaggedReason = reason || 'No reason provided'; // Store the reason
+                    await setBookInFirestore(bookToFlag, 'flagged_books', window.adminUserId);
+                }, { once: true });
+            }
+
+            if (cancelButton) {
+                cancelButton.addEventListener('click', () => {
+                    messageBox.style.display = 'none';
+                }, { once: true });
+            }
         }
-
 
         // --- View Management ---
         /**
@@ -2597,7 +2604,7 @@
             console.log(`showView: Attempting to show view: ${viewId}`);
             const views = ['recommendations-view', 'bookshelf-view', 'beth-deleted-books-view', 'flagged-books-view', 'admin-approved-books-view'];
             views.forEach(id => {
-                const viewElement = document.getElementById(id);
+                const viewElement = safeGetElementSync(id);
                 if (viewElement) {
                     if (id === viewId) {
                         viewElement.classList.remove('hidden');
@@ -2635,8 +2642,18 @@
             }
         }
 
-
         // --- Utility Functions ---
+
+        /**
+         * FIXED: Synchronous element getter with null safety
+         */
+        function safeGetElementSync(elementId) {
+            const element = document.getElementById(elementId);
+            if (!element) {
+                console.warn(`Element '${elementId}' not found`);
+            }
+            return element;
+        }
 
         /**
          * Generates HTML for a star rating based on a given numerical rating (out of 5).
@@ -2741,9 +2758,9 @@
          * Displays current admin alerts in the admin panel.
          */
         function displayAdminAlerts() {
-            const adminAlertsContainer = document.getElementById('admin-alerts-container');
-            const adminAlertsList = document.getElementById('admin-alerts-list');
-            const noAdminAlertsMessage = document.getElementById('no-admin-alerts-message');
+            const adminAlertsContainer = safeGetElementSync('admin-alerts-container');
+            const adminAlertsList = safeGetElementSync('admin-alerts-list');
+            const noAdminAlertsMessage = safeGetElementSync('no-admin-alerts-message');
 
             // Add null checks for robustness
             if (!adminAlertsContainer) {
@@ -2782,10 +2799,7 @@
                     adminAlertsList.appendChild(alertItem);
                 });
 
-                // Attach event listeners to the newly created buttons
-                adminAlertsList.querySelectorAll('.dismiss-admin-alert-btn').forEach(button => {
-                    button.addEventListener('click', (event) => dismissAdminAlert(event.currentTarget.dataset.id));
-                });
+                // Event listeners are handled by event delegation in DOMContentLoaded
             }
         }
 
@@ -2798,40 +2812,17 @@
             await deleteAdminAlertFromFirestore(id);
         }
 
-        // Enhanced utility function for safe element access with retry logic
-        function safeGetElement(elementId, maxRetries = 3, delay = 50) {
-            return new Promise((resolve) => {
-                let attempts = 0;
-                function tryGetElement() {
-                    attempts++;
-                    const element = document.getElementById(elementId);
-                    if (element) {
-                        resolve(element);
-                        return;
-                    }
-                    if (attempts < maxRetries) {
-                        console.log(`Element '${elementId}' not found, retrying in ${delay}ms (attempt ${attempts}/${maxRetries})`);
-                        setTimeout(tryGetElement, delay);
-                    } else {
-                        console.error(`Element '${elementId}' not found after ${maxRetries} attempts`);
-                        resolve(null);
-                    }
-                }
-                tryGetElement();
-            });
-        }
-
-        // Enhanced display function wrapper with better error handling
-        async function safeDisplayFunction(displayFunc, functionName) {
+        // FIXED: Enhanced display function wrapper with better error handling (removed unnecessary async)
+        function safeDisplayFunction(displayFunc, functionName) {
             try {
-                await displayFunc();
+                displayFunc();
                 console.log(`${functionName}: Successfully executed`);
             } catch (error) {
                 console.warn(`${functionName}: Error occurred, retrying...`, error);
                 // Retry once after a short delay
-                setTimeout(async () => {
+                setTimeout(() => {
                     try {
-                        await displayFunc();
+                        displayFunc();
                         console.log(`${functionName}: Successfully executed on retry`);
                     } catch (retryError) {
                         console.error(`${functionName}: Failed on retry`, retryError);
@@ -2846,10 +2837,10 @@
          * @param {boolean} [isLoader=false] - True if a loader should be shown.
          * @param {boolean} [isLlmInsight=false] - True if the message is an LLM insight (stays open until closed).
          */
-        async function showMessage(text, isLoader = false, isLlmInsight = false) {
-            const messageBox = await safeGetElement('message-box');
-            const messageText = await safeGetElement('message-text');
-            const closeButton = await safeGetElement('message-box-close');
+        function showMessage(text, isLoader = false, isLlmInsight = false) {
+            const messageBox = safeGetElementSync('message-box');
+            const messageText = safeGetElementSync('message-text');
+            const closeButton = safeGetElementSync('message-box-close');
 
             // Add null checks for robustness
             if (!messageBox || !messageText || !closeButton) {
@@ -2862,7 +2853,6 @@
             closeButton.style.display = isLoader ? 'none' : 'block'; // Hide close button for loaders
             messageBox.style.display = 'block';
             console.log(`showMessage: Displaying message: "${text}", isLoader: ${isLoader}, isLlmInsight: ${isLlmInsight}`);
-
 
             if (!isLoader && !isLlmInsight) { // Auto-hide for simple messages (like "You picked...")
                 setTimeout(() => {
@@ -2878,7 +2868,7 @@
 
         /** Helper function to close the message box */
         function closeMessageBox() {
-            const messageBox = document.getElementById('message-box');
+            const messageBox = safeGetElementSync('message-box');
             if (messageBox) {
                 messageBox.style.display = 'none';
                 messageBox.classList.remove('llm-insight');
@@ -2887,13 +2877,19 @@
         }
 
         /**
-         * Seeds Beth's bookshelf with initial "loved" books if they are not already present.
+         * FIXED: Seeds Beth's bookshelf with initial "loved" books if they are not already present.
          */
         async function seedInitialBookshelf() {
             console.log("seedInitialBookshelf: Function started.");
             if (localStorage.getItem(MIGRATED_INITIAL_BOOKSHELF_FLAG) === 'true') {
                 console.log("seedInitialBookshelf: Initial bookshelf seeding already completed (flag found in localStorage).");
                 return;
+            }
+
+            // FIXED: Wait for listeners to be ready before checking bookshelf
+            const listenersReady = await waitForListenersReady();
+            if (!listenersReady) {
+                console.warn("seedInitialBookshelf: Listeners not ready, seeding anyway but data might not be accurate");
             }
 
             const initialBooks = [
@@ -2919,7 +2915,6 @@
                 const isAlreadyOnShelf = window.bookShelfBooks.some(book => book.workKey === workKey);
                 console.log(`seedInitialBookshelf: Is book with workKey ${workKey} already on bookshelf? ${isAlreadyOnShelf}`);
 
-
                 if (!isAlreadyOnShelf) {
                     console.log(`seedInitialBookshelf: Fetching details for ${workKey}...`);
                     const bookDetails = await fetchBookDetailsFromOpenLibrary(workKey);
@@ -2944,7 +2939,7 @@
         }
 
         /**
-         * Initializes the main application after successful PIN login.
+         * FIXED: Initializes the main application after successful PIN login with improved sequencing.
          * @param {boolean} isAdminLogin - True if the login was via the admin PIN.
          */
         async function initializeAppContent(isAdminLogin = false) {
@@ -2953,7 +2948,7 @@
             console.log("App Content Initialized: Admin User ID set to", window.adminUserId);
             console.log(`initializeAppContent: isAdminLogin = ${isAdminLogin}`);
 
-            // Perform migrations first
+            // FIXED: Perform migrations first
             console.log("Initializing App Content: Starting local storage migrations...");
             await migrateLocalStorageToFirestore(RECOMMENDED_BOOKS_KEY, MIGRATED_RECOMMENDED_BOOKS_FLAG, 'recommended_books');
             await migrateLocalStorageToFirestore(BOOK_SHELF_BOOKS_KEY, MIGRATED_BOOKSHELF_BOOKS_FLAG, 'bookshelf_books');
@@ -2983,24 +2978,35 @@
             }
             console.log("Initializing App Content: Local storage migrations completed.");
 
-            // Setup Firestore listeners after all migrations are potentially done
+            // FIXED: Setup Firestore listeners after all migrations are potentially done
             setupFirestoreListeners();
             
-            // Seed initial bookshelf books (after listeners are set up so window.bookShelfBooks is populated)
-            await seedInitialBookshelf();
+            // FIXED: Wait for listeners to be ready, then seed initial bookshelf
+            console.log("Initializing App Content: Waiting for Firestore listeners to be ready...");
+            const listenersReady = await waitForListenersReady();
+            if (listenersReady) {
+                console.log("Initializing App Content: Firestore listeners are ready, proceeding with seeding.");
+                await seedInitialBookshelf();
+            } else {
+                console.warn("Initializing App Content: Listeners not ready after waiting, proceeding anyway.");
+                await seedInitialBookshelf();
+            }
 
             // Hide login screen
-            document.getElementById('login-screen').classList.add('hidden');
+            const loginScreen = safeGetElementSync('login-screen');
+            if (loginScreen) loginScreen.classList.add('hidden');
             
             // Show splash screen
-            document.getElementById('splash-screen').classList.remove('hidden');
+            const splashScreen = safeGetElementSync('splash-screen');
+            if (splashScreen) splashScreen.classList.remove('hidden');
             console.log("initializeAppContent: Showing splash screen.");
 
             // Set admin panel visibility based on login type
             setAdminUIVisibility(isAdminLogin);
 
             // The "Ready for More Recommendations!" button is now always visible for logged-in users.
-            document.getElementById('request-more-recs-container')?.classList.remove('hidden');
+            const requestMoreContainer = safeGetElementSync('request-more-recs-container');
+            if (requestMoreContainer) requestMoreContainer.classList.remove('hidden');
             console.log("initializeAppContent: 'Ready for More Recommendations' button visible.");
         }
 
@@ -3009,17 +3015,31 @@
          */
         function handleLogout() {
             // Hide all main content views
-            document.getElementById('main-content').classList.add('hidden');
-            document.getElementById('splash-screen').classList.add('hidden');
-            // Show login screen
-            document.getElementById('login-screen').classList.remove('hidden');
-            // Clear PIN input
-            document.getElementById('pin-input').value = '';
+            const mainContent = safeGetElementSync('main-content');
+            const splashScreen = safeGetElementSync('splash-screen');
+            const loginScreen = safeGetElementSync('login-screen');
+            const pinInput = safeGetElementSync('pin-input');
+
+            if (mainContent) mainContent.classList.add('hidden');
+            if (splashScreen) splashScreen.classList.add('hidden');
+            if (loginScreen) loginScreen.classList.remove('hidden');
+            if (pinInput) pinInput.value = '';
+
             // Reset admin UI visibility
             setAdminUIVisibility(false); // Hide admin elements on logout
             // Reset the UI ready flag on logout
             window.uiReadyForDisplay = false;
             console.log("Logged out. Returning to login screen.");
+
+            // FIXED: Clean up active abort controllers on logout
+            activeAbortControllers.forEach(controller => {
+                try {
+                    controller.abort();
+                } catch (e) {
+                    console.warn("Error aborting controller on logout:", e);
+                }
+            });
+            activeAbortControllers.clear();
         }
 
         /**
@@ -3033,36 +3053,144 @@
             );
         }
 
+        // FIXED: Event delegation implementation
+        function setupEventDelegation() {
+            // Set up event delegation on main containers to handle dynamically created buttons
+            
+            // Book list container (for recommended books)
+            const bookListContainer = safeGetElementSync('book-list');
+            if (bookListContainer) {
+                bookListContainer.addEventListener('click', (event) => {
+                    const target = event.target;
+                    if (target.classList.contains('pick-book-btn')) {
+                        handlePickBook(target.dataset.workkey);
+                    } else if (target.classList.contains('get-insight-btn')) {
+                        getPersonalizedInsight(event);
+                    } else if (target.classList.contains('pass-book-btn')) {
+                        handlePassBook(target.dataset.workkey);
+                    } else if (target.classList.contains('remove-admin-button')) {
+                        removeBookFromRecommended(target.dataset.workkey);
+                    } else if (target.classList.contains('red-flag-btn')) {
+                        handleRedFlag(target.dataset.workkey, target.dataset.author);
+                    }
+                });
+            }
+
+            // Bookshelf list container
+            const bookshelfListContainer = safeGetElementSync('bookshelf-list');
+            if (bookshelfListContainer) {
+                bookshelfListContainer.addEventListener('click', (event) => {
+                    const target = event.target;
+                    if (target.classList.contains('update-rating-btn')) {
+                        const workKey = target.closest('.review-buttons').dataset.bookWorkkey;
+                        const rating = target.dataset.rating;
+                        updateUserRating(workKey, rating);
+                    } else if (target.classList.contains('remove-from-bookshelf-btn')) {
+                        removeBookFromBookshelf(target.dataset.workkey);
+                    }
+                });
+            }
+
+            // Beth's deleted books list container
+            const bethDeletedBooksListContainer = safeGetElementSync('beth-deleted-books-list');
+            if (bethDeletedBooksListContainer) {
+                bethDeletedBooksListContainer.addEventListener('click', (event) => {
+                    const target = event.target;
+                    if (target.classList.contains('restore-beth-deleted-btn')) {
+                        restoreBookFromBethDeleted(target.dataset.workkey);
+                    }
+                });
+            }
+
+            // Flagged books list container
+            const flaggedBooksListContainer = safeGetElementSync('flagged-books-list');
+            if (flaggedBooksListContainer) {
+                flaggedBooksListContainer.addEventListener('click', (event) => {
+                    const target = event.target;
+                    if (target.classList.contains('restore-flagged-btn')) {
+                        restoreBookFromFlagged(target.dataset.workkey);
+                    }
+                });
+            }
+
+            // Search results container
+            const searchResultsContainer = safeGetElementSync('search-results');
+            if (searchResultsContainer) {
+                searchResultsContainer.addEventListener('click', (event) => {
+                    const target = event.target;
+                    if (target.classList.contains('add-to-curated-list-btn')) {
+                        addBookToCuratedList(event);
+                    }
+                });
+            }
+
+            // Admin alerts list container
+            const adminAlertsList = safeGetElementSync('admin-alerts-list');
+            if (adminAlertsList) {
+                adminAlertsList.addEventListener('click', (event) => {
+                    const target = event.target;
+                    if (target.classList.contains('dismiss-admin-alert-btn')) {
+                        dismissAdminAlert(target.dataset.id);
+                    }
+                });
+            }
+
+            // Admin pending recommendations list container
+            const pendingRecsList = safeGetElementSync('admin-pending-recs-list');
+            if (pendingRecsList) {
+                pendingRecsList.addEventListener('click', (event) => {
+                    const target = event.target;
+                    if (target.classList.contains('approve-for-beth-btn')) {
+                        approveBookForBeth(event);
+                    } else if (target.classList.contains('skip-pending-btn')) {
+                        skipPendingBook(target.dataset.workkey);
+                    } else if (target.classList.contains('red-flag-pending-btn')) {
+                        redFlagBookFromPending(target.dataset.workkey, target.dataset.author);
+                    }
+                });
+            }
+
+            // Admin approved books list container
+            const approvedBooksList = safeGetElementSync('admin-approved-books-list');
+            if (approvedBooksList) {
+                approvedBooksList.addEventListener('click', (event) => {
+                    const target = event.target;
+                    if (target.classList.contains('move-to-beths-recs-btn')) {
+                        moveToBethsRecommendations(event);
+                    } else if (target.classList.contains('remove-from-approved-btn')) {
+                        removeBookFromApproved(target.dataset.workkey);
+                    }
+                });
+            }
+
+            console.log("Event delegation setup completed");
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
             // Set the current year in the footer
-            const currentYearElement = document.getElementById('current-year');
+            const currentYearElement = safeGetElementSync('current-year');
             if (currentYearElement) {
                 currentYearElement.textContent = new Date().getFullYear();
             }
 
             // Explicitly hide elements on load to ensure correct initial state
             // ONLY HIDE THE VIEWS, NOT THE MAIN CONTENT CONTAINER
-            document.getElementById('admin-search-panel')?.classList.add('hidden');
-            document.getElementById('nav-flagged-books')?.classList.add('hidden');
-            document.getElementById('nav-admin-approved-books')?.classList.add('hidden');
-            document.getElementById('request-more-recs-container')?.classList.add('hidden'); // Initially hidden until Beth logs in
+            const elementsToHide = [
+                'admin-search-panel', 'nav-flagged-books', 'nav-admin-approved-books',
+                'request-more-recs-container', 'recommendations-view', 'bookshelf-view',
+                'beth-deleted-books-view', 'flagged-books-view', 'admin-approved-books-view', 'splash-screen'
+            ];
             
-            // Ensure all main content sections are hidden initially, but the main-content div is visible
-            document.getElementById('recommendations-view')?.classList.add('hidden');
-            document.getElementById('bookshelf-view')?.classList.add('hidden');
-            document.getElementById('beth-deleted-books-view')?.classList.add('hidden');
-            document.getElementById('flagged-books-view')?.classList.add('hidden');
-            document.getElementById('admin-approved-books-view')?.classList.add('hidden');
+            elementsToHide.forEach(id => {
+                const element = safeGetElementSync(id);
+                if (element) element.classList.add('hidden');
+            });
 
-            document.getElementById('splash-screen')?.classList.add('hidden'); // New splash screen, hidden by default
-            document.getElementById('login-screen')?.classList.remove('hidden'); // Show login screen initially
+            const loginScreen = safeGetElementSync('login-screen');
+            if (loginScreen) loginScreen.classList.remove('hidden'); // Show login screen initially
             console.log("DOMContentLoaded: Initial UI state set.");
 
-
-            // --- IMPORTANT: Firebase Initialization for GitHub Deployment ---
-            // When deploying to GitHub, you need to provide your actual Firebase config.
-            // Get this from your Firebase project settings (Project settings > General > Your apps > Web app > Config).
-            // This config is now directly provided by the user.
+            // FIXED: Single Firebase initialization block
             const firebaseConfig = {
                 apiKey: "AIzaSyAFy0zdwfRbLuOHLvrjRpCo1WVAM_6JES4",
                 authDomain: "beths-book-club.firebaseapp.com",
@@ -3079,45 +3207,37 @@
                 window.auth = getAuth(window.firebaseApp); // Auth service initialized, but not used for PIN login
                 window.analytics = getAnalytics(window.firebaseApp); // Initialize analytics
                 console.log("Firebase initialized successfully.");
-                
-                try {
-    window.firebaseApp = initializeApp(firebaseConfig);
-    window.db = getFirestore(window.firebaseApp);
-    window.auth = getAuth(window.firebaseApp); // Auth service initialized, but not used for PIN login
-    window.analytics = getAnalytics(window.firebaseApp); // Initialize analytics
-    console.log("Firebase initialized successfully.");
-} catch (error) {
-    console.error("ERROR: Failed to initialize Firebase:", error);
-    showMessage(`Failed to initialize Firebase. Please check your console for errors.`, false, true);
-    return; // Stop execution if Firebase initialization fails
-}
-                
             } catch (error) {
                 console.error("ERROR: Failed to initialize Firebase:", error);
                 showMessage(`Failed to initialize Firebase. Please check your console for errors.`, false, true);
                 return; // Stop execution if Firebase initialization fails
             }
 
+            // FIXED: Setup event delegation after DOM is ready
+            setupEventDelegation();
+
             // --- PIN Login Event Listener ---
-            const pinInput = document.getElementById('pin-input');
-            const loginButton = document.getElementById('login-button');
-            const loginMessage = document.getElementById('login-message');
+            const pinInput = safeGetElementSync('pin-input');
+            const loginButton = safeGetElementSync('login-button');
+            const loginMessage = safeGetElementSync('login-message');
 
             if (loginButton) {
                 loginButton.addEventListener('click', () => {
                     console.log("Login button clicked.");
                     const enteredPin = pinInput ? pinInput.value : '';
                     if (enteredPin === BETH_PIN) {
-                        loginMessage.textContent = '';
+                        if (loginMessage) loginMessage.textContent = '';
                         console.log("Beth's PIN entered. Initializing app for Beth.");
                         initializeAppContent(false); // Not admin login
                     } else if (enteredPin === ADMIN_PIN) {
-                        loginMessage.textContent = '';
+                        if (loginMessage) loginMessage.textContent = '';
                         console.log("Admin PIN entered. Initializing app for Admin.");
                         initializeAppContent(true); // Admin login
                     } else {
-                        loginMessage.textContent = 'Incorrect PIN. Please try again.';
-                        loginMessage.classList.remove('hidden');
+                        if (loginMessage) {
+                            loginMessage.textContent = 'Incorrect PIN. Please try again.';
+                            loginMessage.classList.remove('hidden');
+                        }
                         console.log("Incorrect PIN entered.");
                     }
                 });
@@ -3134,69 +3254,120 @@
             // --- Event Listeners for Static Elements (No longer inline onclick) ---
 
             // Navigation Buttons
-            document.getElementById('nav-recommendations')?.addEventListener('click', () => showView('recommendations-view'));
-            document.getElementById('nav-bookshelf')?.addEventListener('click', () => showView('bookshelf-view'));
-            document.getElementById('nav-beth-deleted-books')?.addEventListener('click', () => showView('beth-deleted-books-view'));
-            document.getElementById('nav-flagged-books')?.addEventListener('click', () => showView('flagged-books-view'));
-            document.getElementById('nav-admin-approved-books')?.addEventListener('click', () => showView('admin-approved-books-view'));
+            const navButtons = [
+                { id: 'nav-recommendations', view: 'recommendations-view' },
+                { id: 'nav-bookshelf', view: 'bookshelf-view' },
+                { id: 'nav-beth-deleted-books', view: 'beth-deleted-books-view' },
+                { id: 'nav-flagged-books', view: 'flagged-books-view' },
+                { id: 'nav-admin-approved-books', view: 'admin-approved-books-view' }
+            ];
 
-            // Admin Panel Buttons
-            document.getElementById('search-button')?.addEventListener('click', () => {
-                const queryInput = document.getElementById('search-input');
-                const query = queryInput ? queryInput.value.trim() : '';
-                if (query) {
-                    searchBooks(query);
-                } else {
-                    showMessage('Please enter a book title or author to search.', false, false);
+            navButtons.forEach(({ id, view }) => {
+                const button = safeGetElementSync(id);
+                if (button) {
+                    button.addEventListener('click', () => showView(view));
                 }
             });
-            document.getElementById('recommend-button')?.addEventListener('click', generateRecommendations);
-            document.getElementById('manual-add-button')?.addEventListener('click', addBookFromOpenLibraryUrl);
-            document.getElementById('evaluate-book-button')?.addEventListener('click', evaluateBookForBeth);
-            document.getElementById('request-more-recs-button')?.addEventListener('click', requestMoreRecommendations);
+
+            // Admin Panel Buttons
+            const searchButton = safeGetElementSync('search-button');
+            if (searchButton) {
+                searchButton.addEventListener('click', () => {
+                    const queryInput = safeGetElementSync('search-input');
+                    const query = queryInput ? queryInput.value.trim() : '';
+                    if (query) {
+                        searchBooks(query);
+                    } else {
+                        showMessage('Please enter a book title or author to search.', false, false);
+                    }
+                });
+            }
+
+            const recommendButton = safeGetElementSync('recommend-button');
+            if (recommendButton) {
+                recommendButton.addEventListener('click', generateRecommendations);
+            }
+
+            const manualAddButton = safeGetElementSync('manual-add-button');
+            if (manualAddButton) {
+                manualAddButton.addEventListener('click', addBookFromOpenLibraryUrl);
+            }
+
+            const evaluateBookButton = safeGetElementSync('evaluate-book-button');
+            if (evaluateBookButton) {
+                evaluateBookButton.addEventListener('click', evaluateBookForBeth);
+            }
+
+            const requestMoreRecsButton = safeGetElementSync('request-more-recs-button');
+            if (requestMoreRecsButton) {
+                requestMoreRecsButton.addEventListener('click', requestMoreRecommendations);
+            }
 
             // Input field Enter key listeners
-            document.getElementById('search-input')?.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') document.getElementById('search-button')?.click();
-            });
-            document.getElementById('manual-add-url-input')?.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') document.getElementById('manual-add-button')?.click();
-            });
-            document.getElementById('evaluate-book-url-input')?.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') document.getElementById('evaluate-book-button')?.click();
+            const inputConfigs = [
+                { id: 'search-input', buttonId: 'search-button' },
+                { id: 'manual-add-url-input', buttonId: 'manual-add-button' },
+                { id: 'evaluate-book-url-input', buttonId: 'evaluate-book-button' }
+            ];
+
+            inputConfigs.forEach(({ id, buttonId }) => {
+                const input = safeGetElementSync(id);
+                if (input) {
+                    input.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') {
+                            const button = safeGetElementSync(buttonId);
+                            if (button) button.click();
+                        }
+                    });
+                }
             });
 
             // Logout Button
-            document.getElementById('logout-button')?.addEventListener('click', handleLogout);
+            const logoutButton = safeGetElementSync('logout-button');
+            if (logoutButton) {
+                logoutButton.addEventListener('click', handleLogout);
+            }
 
             // Forgot PIN Button
-            document.getElementById('forgot-pin-button')?.addEventListener('click', showPinRecoveryMessage);
+            const forgotPinButton = safeGetElementSync('forgot-pin-button');
+            if (forgotPinButton) {
+                forgotPinButton.addEventListener('click', showPinRecoveryMessage);
+            }
 
             // MODIFIED: Splash Screen Continue Button event listener
-            document.getElementById('splash-continue-button')?.addEventListener('click', () => {
-                document.getElementById('splash-screen')?.classList.add('hidden');
-                document.getElementById('main-content')?.classList.remove('hidden'); // Ensure main-content is visible
-                
-                // NEW: Set the UI ready flag to true now that main content is visible
-                window.uiReadyForDisplay = true;
-                console.log("UI is now ready for display. Setting uiReadyForDisplay = true");
-                
-                // NEW: Trigger initial display of all sections now that UI is ready
-                // This ensures that any data already loaded by Firestore listeners gets displayed
-                console.log("Triggering initial display functions...");
-                safeDisplayFunction(displayRecommendedBooks, 'displayRecommendedBooks');
-                safeDisplayFunction(displayBookShelfBooks, 'displayBookShelfBooks');
-                safeDisplayFunction(displayBethsDeletedBooks, 'displayBethsDeletedBooks');
-                safeDisplayFunction(displayFlaggedBooks, 'displayFlaggedBooks');
-                safeDisplayFunction(displayAdminAlerts, 'displayAdminAlerts');
-                safeDisplayFunction(displayAdminPendingRecommendations, 'displayAdminPendingRecommendations');
-                safeDisplayFunction(displayAdminApprovedBooks, 'displayAdminApprovedBooks');
-                
-                showView('recommendations-view'); // Transition to main recommendations view
-            });
+            const splashContinueButton = safeGetElementSync('splash-continue-button');
+            if (splashContinueButton) {
+                splashContinueButton.addEventListener('click', () => {
+                    const splashScreen = safeGetElementSync('splash-screen');
+                    const mainContent = safeGetElementSync('main-content');
+                    
+                    if (splashScreen) splashScreen.classList.add('hidden');
+                    if (mainContent) mainContent.classList.remove('hidden'); // Ensure main-content is visible
+                    
+                    // NEW: Set the UI ready flag to true now that main content is visible
+                    window.uiReadyForDisplay = true;
+                    console.log("UI is now ready for display. Setting uiReadyForDisplay = true");
+                    
+                    // NEW: Trigger initial display of all sections now that UI is ready
+                    // This ensures that any data already loaded by Firestore listeners gets displayed
+                    console.log("Triggering initial display functions...");
+                    safeDisplayFunction(displayRecommendedBooks, 'displayRecommendedBooks');
+                    safeDisplayFunction(displayBookShelfBooks, 'displayBookShelfBooks');
+                    safeDisplayFunction(displayBethsDeletedBooks, 'displayBethsDeletedBooks');
+                    safeDisplayFunction(displayFlaggedBooks, 'displayFlaggedBooks');
+                    safeDisplayFunction(displayAdminAlerts, 'displayAdminAlerts');
+                    safeDisplayFunction(displayAdminPendingRecommendations, 'displayAdminPendingRecommendations');
+                    safeDisplayFunction(displayAdminApprovedBooks, 'displayAdminApprovedBooks');
+                    
+                    showView('recommendations-view'); // Transition to main recommendations view
+                });
+            }
 
             // Close button for message box (initial setup)
-            document.getElementById('message-box-close')?.addEventListener('click', closeMessageBox);
+            const messageBoxClose = safeGetElementSync('message-box-close');
+            if (messageBoxClose) {
+                messageBoxClose.addEventListener('click', closeMessageBox);
+            }
         });
     </script>
     <style>
