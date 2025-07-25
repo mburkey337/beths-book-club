@@ -33,6 +33,9 @@
         window.adminPendingRecommendations = [];
         window.adminApprovedBooks = [];
 
+        // NEW: Flag to control when display functions can execute
+        window.uiReadyForDisplay = false;
+
         // Fixed PINs for login
         const BETH_PIN = '7288'; // Corrected Beth's PIN
         const ADMIN_PIN = '2384'; // Admin PIN
@@ -265,21 +268,30 @@
             onSnapshot(collection(window.db, getCollectionPath('recommended_books')), (snapshot) => {
                 window.recommendedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 console.log("Firestore Listener: recommended_books updated.", window.recommendedBooks.length, "books.");
-                safeDisplayFunction(displayRecommendedBooks, 'displayRecommendedBooks');
+                // MODIFIED: Check if UI is ready before calling display function
+                if (window.uiReadyForDisplay) {
+                    safeDisplayFunction(displayRecommendedBooks, 'displayRecommendedBooks');
+                }
             });
 
             // Bookshelf Books (Public)
             onSnapshot(collection(window.db, getCollectionPath('bookshelf_books')), (snapshot) => {
                 window.bookShelfBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 console.log("Firestore Listener: bookshelf_books updated.", window.bookShelfBooks.length, "books.");
-                safeDisplayFunction(displayBookShelfBooks, 'displayBookShelfBooks');
+                // MODIFIED: Check if UI is ready before calling display function
+                if (window.uiReadyForDisplay) {
+                    safeDisplayFunction(displayBookShelfBooks, 'displayBookShelfBooks');
+                }
             });
 
             // Beth's Deleted Books (Public)
             onSnapshot(collection(window.db, getCollectionPath('beth_deleted_books')), (snapshot) => {
                 window.bethDeletedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 console.log("Firestore Listener: beth_deleted_books updated.", window.bethDeletedBooks.length, "books.");
-                safeDisplayFunction(displayBethsDeletedBooks, 'displayBethsDeletedBooks');
+                // MODIFIED: Check if UI is ready before calling display function
+                if (window.uiReadyForDisplay) {
+                    safeDisplayFunction(displayBethsDeletedBooks, 'displayBethsDeletedBooks');
+                }
             });
 
             // Admin-specific listeners (only if adminUserId is available)
@@ -288,14 +300,20 @@
                 onSnapshot(collection(window.db, getCollectionPath('flagged_books', window.adminUserId)), (snapshot) => {
                     window.flaggedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     console.log("Firestore Listener: flagged_books updated.", window.flaggedBooks.length, "books.");
-                    safeDisplayFunction(displayFlaggedBooks, 'displayFlaggedBooks');
+                    // MODIFIED: Check if UI is ready before calling display function
+                    if (window.uiReadyForDisplay) {
+                        safeDisplayFunction(displayFlaggedBooks, 'displayFlaggedBooks');
+                    }
                 });
 
                 // Admin Alerts (Admin Specific)
                 onSnapshot(collection(window.db, getCollectionPath('admin_alerts', window.adminUserId)), (snapshot) => {
                     window.adminAlerts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     console.log("Firestore Listener: admin_alerts updated.", window.adminAlerts.length, "alerts.", window.adminAlerts);
-                    safeDisplayFunction(displayAdminAlerts, 'displayAdminAlerts');
+                    // MODIFIED: Check if UI is ready before calling display function
+                    if (window.uiReadyForDisplay) {
+                        safeDisplayFunction(displayAdminAlerts, 'displayAdminAlerts');
+                    }
                 });
 
                 // Admin Pending Recommendations (Admin Specific)
@@ -303,15 +321,21 @@
                     window.adminPendingRecommendations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     // Sort by score in descending order
                     window.adminPendingRecommendations.sort((a, b) => b.score - a.score);
-                    console.log("Firestore Listener: admin_pending_recs updated.", window.adminPendingRecommendations.length, "recs."); // Log for debugging
-                    safeDisplayFunction(displayAdminPendingRecommendations, 'displayAdminPendingRecommendations');
+                    console.log("Firestore Listener: admin_pending_recs updated.", window.adminPendingRecommendations.length, "recs.");
+                    // MODIFIED: Check if UI is ready before calling display function
+                    if (window.uiReadyForDisplay) {
+                        safeDisplayFunction(displayAdminPendingRecommendations, 'displayAdminPendingRecommendations');
+                    }
                 });
 
                 // Admin Approved Books (Admin Specific)
                 onSnapshot(collection(window.db, getCollectionPath('admin_approved_books', window.adminUserId)), (snapshot) => {
                     window.adminApprovedBooks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    console.log("Firestore Listener: admin_approved_books updated.", window.adminApprovedBooks.length, "books."); // Log for debugging
-                    safeDisplayFunction(displayAdminApprovedBooks, 'displayAdminApprovedBooks');
+                    console.log("Firestore Listener: admin_approved_books updated.", window.adminApprovedBooks.length, "books.");
+                    // MODIFIED: Check if UI is ready before calling display function
+                    if (window.uiReadyForDisplay) {
+                        safeDisplayFunction(displayAdminApprovedBooks, 'displayAdminApprovedBooks');
+                    }
                 });
             } else {
                 console.warn("Skipping setup for user-specific Firestore listeners as adminUserId is not available.");
@@ -2286,12 +2310,8 @@
             if (searchMessage) searchMessage.classList.add('hidden');
 
             // Re-render relevant sections
-            displayRecommendedBooks(); // This will re-render and correctly show/hide admin actions on book cards
-            if (showAdmin) {
-                safeDisplayFunction(displayAdminAlerts, 'displayAdminAlerts');
-                safeDisplayFunction(displayAdminPendingRecommendations, 'displayAdminPendingRecommendations');
-                safeDisplayFunction(displayAdminApprovedBooks, 'displayAdminApprovedBooks');
-            }
+            // No longer calling display functions here directly, as they are now guarded by uiReadyForDisplay
+            // and will be triggered explicitly after splash screen is dismissed.
         }
 
 
@@ -2601,6 +2621,7 @@
             });
 
             // Refresh content for the displayed view
+            // These calls are now safe because uiReadyForDisplay is true when showView is called after splash screen
             if (viewId === 'recommendations-view') {
                 displayRecommendedBooks();
             } else if (viewId === 'bookshelf-view') {
@@ -2996,6 +3017,8 @@
             document.getElementById('pin-input').value = '';
             // Reset admin UI visibility
             setAdminUIVisibility(false); // Hide admin elements on logout
+            // Reset the UI ready flag on logout
+            window.uiReadyForDisplay = false;
             console.log("Logged out. Returning to login screen.");
         }
 
@@ -3136,10 +3159,26 @@
             // Forgot PIN Button
             document.getElementById('forgot-pin-button')?.addEventListener('click', showPinRecoveryMessage);
 
-            // Splash Screen Continue Button
+            // MODIFIED: Splash Screen Continue Button event listener
             document.getElementById('splash-continue-button')?.addEventListener('click', () => {
                 document.getElementById('splash-screen')?.classList.add('hidden');
                 document.getElementById('main-content')?.classList.remove('hidden'); // Ensure main-content is visible
+                
+                // NEW: Set the UI ready flag to true now that main content is visible
+                window.uiReadyForDisplay = true;
+                console.log("UI is now ready for display. Setting uiReadyForDisplay = true");
+                
+                // NEW: Trigger initial display of all sections now that UI is ready
+                // This ensures that any data already loaded by Firestore listeners gets displayed
+                console.log("Triggering initial display functions...");
+                safeDisplayFunction(displayRecommendedBooks, 'displayRecommendedBooks');
+                safeDisplayFunction(displayBookShelfBooks, 'displayBookShelfBooks');
+                safeDisplayFunction(displayBethsDeletedBooks, 'displayBethsDeletedBooks');
+                safeDisplayFunction(displayFlaggedBooks, 'displayFlaggedBooks');
+                safeDisplayFunction(displayAdminAlerts, 'displayAdminAlerts');
+                safeDisplayFunction(displayAdminPendingRecommendations, 'displayAdminPendingRecommendations');
+                safeDisplayFunction(displayAdminApprovedBooks, 'displayAdminApprovedBooks');
+                
                 showView('recommendations-view'); // Transition to main recommendations view
             });
 
@@ -3624,109 +3663,4 @@
 
                 <!-- Admin Pending Recommendations Container -->
                 <div id="admin-pending-recs-container" class="admin-pending-recs-container hidden">
-                    <h3 class="text-xl font-semibold text-gray-800 mb-4">Admin: Pending Recommendations</h3>
-                    <div id="admin-pending-recs-list">
-                        <!-- Pending recommendations will be displayed here -->
-                    </div>
-                    <p id="no-admin-pending-recs-message" class="text-center text-gray-600 mt-4 hidden"></p>
-                </div>
-
-                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
-                    <input type="text" id="search-input" placeholder="Search by title or author..."
-                           class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700">
-                    <button id="search-button" class="action-button px-6 py-3">Search Books</button>
-                    <button id="recommend-button" class="action-button recommend-btn px-6 py-3">Get Recommendations</button>
-                </div>
-
-                <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
-                    <input type="text" id="manual-add-url-input" placeholder="Paste Open Library Work URL (e.g., https://openlibrary.org/works/OL12345W)"
-                           class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700">
-                    <button id="manual-add-button" class="action-button px-6 py-3 bg-blue-600 hover:bg-blue-700">Add Manually</button>
-                </div>
-
-                <!-- New: Evaluate Book for Beth -->
-                <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
-                    <input type="text" id="evaluate-book-url-input" placeholder="Evaluate Book for Beth (Open Library Work URL)"
-                           class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700">
-                    <button id="evaluate-book-button" class="action-button px-6 py-3 bg-purple-600 hover:bg-purple-700">Evaluate Book</button>
-                </div>
-
-
-                <div id="search-results" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-8">
-                    <!-- Search results will be displayed here -->
-                </div>
-                <div id="search-loader" class="loader"></div>
-                <p id="search-message" class="text-center text-gray-600 mt-4 hidden"></p>
-            </div>
-        </section>
-
-        <!-- Main Content Area for Curated Books -->
-        <main id="recommendations-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
-            <div class="max-w-7xl mx-auto">
-                <h2 id="recommended-reads-heading" class="text-3xl font-bold text-center mb-10 text-gray-800">Recommended Reads (This Month)</h2>
-                <div id="book-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                    <!-- Curated book cards will be dynamically inserted here by JavaScript -->
-                </div>
-                <p id="no-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
-                <!-- New button for Beth to request more recommendations (visibility controlled by PIN login) -->
-                <div id="request-more-recs-container" class="mt-10 text-center hidden">
-                    <button id="request-more-recs-button" class="action-button px-8 py-4 text-lg bg-blue-500 hover:bg-blue-600">Ready for More Recommendations!</button>
-                </div>
-            </div>
-        </main>
-
-        <!-- Beth's Bookshelf Section -->
-        <section id="bookshelf-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
-            <div class="max-w-7xl mx-auto">
-                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Beth's Bookshelf</h2>
-                <!-- Adjusted grid for smaller cards on bookshelf -->
-                <div id="bookshelf-list" class="flex flex-wrap justify-center gap-4">
-                    <!-- Books from the bookshelf will be dynamically inserted here -->
-                </div>
-                <p id="no-bookshelf-message" class="text-center text-gray-600 mt-4 hidden"></p>
-            </div>
-        </section>
-
-        <!-- Beth's Deleted Books Section (Always visible) -->
-        <section id="beth-deleted-books-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
-            <div class="max-w-7xl mx-auto">
-                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Beth's Deleted Books</h2>
-                <div id="beth-deleted-books-list" class="flex flex-wrap justify-center gap-4">
-                    <!-- Beth's deleted books will be dynamically inserted here -->
-                </div>
-                <p id="no-beth-deleted-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
-            </div>
-        </section>
-
-        <!-- Admin Flagged Books Section (Initially Hidden and controlled by PIN login) -->
-        <section id="flagged-books-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
-            <div class="max-w-7xl mx-auto">
-                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Admin: Flagged Books</h2>
-                <div id="flagged-books-list" class="flex flex-wrap justify-center gap-4">
-                    <!-- Flagged books (passed/red-flagged) will be dynamically inserted here -->
-                </div>
-                <p id="no-flagged-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
-            </div>
-        </section>
-
-        <!-- Admin Approved Books Section (Initially Hidden and controlled by PIN login) -->
-        <section id="admin-approved-books-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
-            <div class="max-w-7xl mx-auto">
-                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Admin: Approved Books</h2>
-                <div id="admin-approved-books-list" class="flex flex-wrap justify-center gap-4">
-                    <!-- Admin approved books will be dynamically inserted here -->
-                </div>
-                <p id="no-admin-approved-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
-            </div>
-        </section>
-
-        <!-- Footer Section -->
-        <footer class="bg-gray-800 text-gray-300 py-8 px-4 sm:px-6 lg:px-8 mt-auto">
-            <div class="max-w-7xl mx-auto text-center">
-                <p>&copy; <span id="current-year"></span> Beth's Book Club. All rights reserved.</p>
-                <p class="text-sm mt-2">Designed with ❤️ for you.</p>
-            </div>
-        </footer>
-    </div>
-</body>
-</html>
+                    <h3 class="t
