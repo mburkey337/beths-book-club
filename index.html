@@ -855,30 +855,27 @@ function setBookInLocalStorage(book, collectionName) {
                         <button class="action-button red-flag-btn w-full mt-2" data-workkey="${escapeJsStringForHtmlAttribute(book.workKey)}" data-author="${escapeJsStringForHtmlAttribute(book.author)}">🚩 Red Flag</button>
                     ` : '';
 
-                    // Stringify the entire book object and HTML-escape it for the data attribute
-                    const bookJsonString = escapeHtmlAttribute(JSON.stringify(book));
-
-                    bookCard.innerHTML = `
-                        <a href="${escapeJsStringForHtmlAttribute(book.goodreadsUrl)}" target="_blank" rel="noopener noreferrer" class="book-link">
-                            <img src="${escapeJsStringForHtmlAttribute(book.imageUrl)}" alt="${escapeJsStringForHtmlAttribute(book.title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover';">
-                            <div class="p-6 flex flex-col flex-grow">
-                                <h3 class="text-xl font-semibold text-gray-900 mb-2">${escapeJsStringForHtmlAttribute(book.title)}</h3>
-                                <p class="text-gray-600 text-sm mb-2">by ${escapeJsStringForHtmlAttribute(book.author)}</p>
-                                ${book.rating !== null ? getStarRatingHtml(book.rating) : ''}
-                                <p class="text-gray-700 text-base book-description flex-grow">${escapeJsStringForHtmlAttribute(description)}</p>
-                            </div>
-                        </a>
-                        <div class="p-6 pt-0 flex flex-col items-center">
-                            <button class="action-button w-full mb-4 pick-book-btn" data-workkey="${escapeJsStringForHtmlAttribute(book.workKey)}">Click to Pick!</button>
-                            <button class="action-button insight-btn w-full mb-4 get-insight-btn" data-book-json="${bookJsonString}">✨ Why for Me?</button>
-                            <button class="action-button pass-btn w-full pass-book-btn" data-workkey="${escapeJsStringForHtmlAttribute(book.workKey)}">Pass</button>
-                            ${adminActionsHtml}
-                        </div>
-                    `;
-                    bookListContainer.appendChild(bookCard);
-                });
-            }
-        }
+// Stringify the entire book object and HTML-escape it for the data attribute
+// FIXED: Add safety checks for book data
+let bookJsonString = '';
+try {
+    if (book && book.workKey && book.title && book.author) {
+        bookJsonString = escapeHtmlAttribute(JSON.stringify(book));
+    } else {
+        console.warn("Incomplete book data for insight button:", book);
+        bookJsonString = escapeHtmlAttribute(JSON.stringify({
+            title: book.title || 'Unknown Title',
+            author: book.author || 'Unknown Author',
+            description: book.description || '',
+            subjects: book.subjects || [],
+            workKey: book.workKey || '',
+            rating: book.rating || null
+        }));
+    }
+} catch (stringifyError) {
+    console.error("Failed to stringify book for insight button:", book, stringifyError);
+    bookJsonString = escapeHtmlAttribute('{"error":"invalid_book_data"}');
+}
 
         /**
          * Removes a book from the main recommended list (admin action).
@@ -2269,92 +2266,110 @@ async function addBookFromOpenLibraryUrl() {
          * Displays the insight in a message box.
          * @param {Event} event - The click event from the "Why for Me?" button.
          */
-        async function getPersonalizedInsight(event) {
-            showMessage('Generating personalized insight... This might take a moment.', true, false);
+async function getPersonalizedInsight(event) {
+    showMessage('Generating personalized insight... This might take a moment.', true, false);
 
-            const button = event.currentTarget;
-            const book = JSON.parse(button.dataset.bookJson);
+    const button = event.currentTarget;
+    
+    // FIXED: Add safety checks for the dataset
+    if (!button.dataset.bookJson) {
+        console.error("No book data found on button:", button);
+        showMessage('Error: Book data not found. Please try refreshing the page.', false, false);
+        return;
+    }
 
-            const { title, author, description, subjects } = book;
+    let book;
+    try {
+        book = JSON.parse(button.dataset.bookJson);
+    } catch (parseError) {
+        console.error("Failed to parse book JSON:", button.dataset.bookJson, parseError);
+        showMessage('Error: Invalid book data. Please try refreshing the page.', false, false);
+        return;
+    }
 
-            const favoriteGenres = BETH_GENRE_KEYWORDS.join(', ');
-            // Use window.bookShelfBooks which is updated by Firestore listener
-            const lovedBooks = window.bookShelfBooks.filter(b => b.userRating === 'love').map(b => b.title);
-            const likedBooks = window.bookShelfBooks.filter(b => b.userRating === 'like').map(b => b.title);
+    if (!book || !book.title || !book.author) {
+        console.error("Invalid book object:", book);
+        showMessage('Error: Incomplete book data. Please try refreshing the page.', false, false);
+        return;
+    }
 
-            let prompt = `You are an AI assistant helping Beth understand why a specific book is recommended for her.
-            Speak directly to Beth.`;
-            prompt += `\nYour favorite genres are: ${favoriteGenres}.`;
-            if (lovedBooks.length > 0) {
-                prompt += `\nYou have "loved" the following books: ${lovedBooks.join(', ')}.`;
-            }
-            if (likedBooks.length > 0) {
-                prompt += `\nYou have "liked" the following books: ${likedBooks.join(', ')}.`;
-            }
-            prompt += `\nHere is the book in question:\n`;
-            prompt += `Title: "${title}"\n`;
-            prompt += `Author: ${author}\n`;
-            if (description && description !== '') {
-                prompt += `Description: ${description}\n`;
-            }
-            if (subjects && subjects.length > 0) {
-                prompt += `Subjects/Themes: ${subjects.join(', ')}\n`;
-            }
-            // Explicit instruction to only provide the explanation and strip any leading conversational text
-            prompt += `\nExplain in a friendly, concise, and compelling way why this book is a good recommendation for you, connecting it to your stated preferences and past liked/loved books. Focus on aspects like genre, themes, author style (if applicable), and overall appeal for someone with your tastes. Keep it to 2-3 sentences. Your response MUST ONLY be the explanation itself, starting directly with the reason, and contain no introductory phrases, conversational filler, or repetition of the book title/your role.`;
+    const { title, author, description, subjects } = book;
 
-            try {
-                let chatHistory = [];
-                chatHistory.push({ role: "user", parts: [{ text: prompt }] });
-                const payload = { contents: chatHistory };
-                // Use the provided API key or fallback to empty string for Canvas
-                const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk" || "";
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const favoriteGenres = BETH_GENRE_KEYWORDS.join(', ');
+    const lovedBooks = window.bookShelfBooks.filter(b => b.userRating === 'love').map(b => b.title);
+    const likedBooks = window.bookShelfBooks.filter(b => b.userRating === 'like').map(b => b.title);
 
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+    let prompt = `You are an AI assistant helping Beth understand why a specific book is recommended for her.
+    Speak directly to Beth.`;
+    prompt += `\nYour favorite genres are: ${favoriteGenres}.`;
+    if (lovedBooks.length > 0) {
+        prompt += `\nYou have "loved" the following books: ${lovedBooks.join(', ')}.`;
+    }
+    if (likedBooks.length > 0) {
+        prompt += `\nYou have "liked" the following books: ${likedBooks.join(', ')}.`;
+    }
+    prompt += `\nHere is the book in question:\n`;
+    prompt += `Title: "${title}"\n`;
+    prompt += `Author: ${author}\n`;
+    if (description && description !== '') {
+        prompt += `Description: ${description}\n`;
+    }
+    if (subjects && subjects.length > 0) {
+        prompt += `Subjects/Themes: ${subjects.join(', ')}\n`;
+    }
+    prompt += `\nExplain in a friendly, concise, and compelling way why this book is a good recommendation for you, connecting it to your stated preferences and past liked/loved books. Focus on aspects like genre, themes, author style (if applicable), and overall appeal for someone with your tastes. Keep it to 2-3 sentences. Your response MUST ONLY be the explanation itself, starting directly with the reason, and contain no introductory phrases, conversational filler, or repetition of the book title/your role.`;
 
-                let insightResult;
-                try {
-                    insightResult = await response.json();
-                }
-                catch (jsonError) {
-                    const errorText = await response.text();
-                    console.error(`ERROR: Failed to parse LLM insight response as JSON:`, jsonError, `Raw response text:`, errorText);
-                    showMessage('Could not generate insight due to an invalid API response. Please try again.', false, false);
-                    return;
-                }
+    try {
+        let chatHistory = [];
+        chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+        const payload = { contents: chatHistory };
+        const apiKey = "AIzaSyCU2J_0zErEIPLl-3ejBABDM-NYKOg44Zk" || "";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
-                if (!response.ok) {
-                    console.error(`ERROR: LLM insight API responded with status ${response.status}:`, insightResult);
-                    showMessage(`Could not generate insight. API error: ${response.status}.`, false, false);
-                    return;
-                }
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
 
-                if (insightResult.candidates && insightResult.candidates.length > 0 &&
-                    insightResult.candidates[0].content && insightResult.candidates[0].content.parts &&
-                    insightResult.candidates[0].content.parts.length > 0) {
-                    let insightText = insightResult.candidates[0].content.parts[0].text;
-                    // Post-process to remove any lingering conversational intros
-                    insightText = insightText.replace(/^(Sure, here's why this book is a good recommendation for Beth:|Here's why this book is a good recommendation for Beth:|This book is a good recommendation for Beth because|This book is recommended for Beth because|Here's why this book is recommended for Beth:)\s*/i, '');
-                    insightText = insightText.replace(new RegExp(`^\\*\\*Why "${title}" for Beth\\?\\*\\*\\n\\n`, 'i'), '');
-                    insightText = insightText.replace(/^(This book is recommended for you because|You might enjoy this book because|This book aligns with your preferences because|This book is a great fit for you because)\s*/i, '');
-
-                    showMessage(`${insightText}`, false, true);
-                } else {
-                    console.error("ERROR: LLM response structure unexpected or no candidates:", insightResult);
-                    showMessage('Could not generate insight. Please try again.', false, false);
-                }
-
-            }
-            catch (error) {
-                console.error('ERROR: Error calling Gemini API for insight (network/fetch issue):', error);
-                showMessage('Failed to get personalized insight. Please check your network connection or API key.', false, false);
-            }
+        let insightResult;
+        try {
+            insightResult = await response.json();
         }
+        catch (jsonError) {
+            const errorText = await response.text();
+            console.error(`ERROR: Failed to parse LLM insight response as JSON:`, jsonError, `Raw response text:`, errorText);
+            showMessage('Could not generate insight due to an invalid API response. Please try again.', false, false);
+            return;
+        }
+
+        if (!response.ok) {
+            console.error(`ERROR: LLM insight API responded with status ${response.status}:`, insightResult);
+            showMessage(`Could not generate insight. API error: ${response.status}.`, false, false);
+            return;
+        }
+
+        if (insightResult.candidates && insightResult.candidates.length > 0 &&
+            insightResult.candidates[0].content && insightResult.candidates[0].content.parts &&
+            insightResult.candidates[0].content.parts.length > 0) {
+            let insightText = insightResult.candidates[0].content.parts[0].text;
+            // Post-process to remove any lingering conversational intros
+            insightText = insightText.replace(/^(Sure, here's why this book is a good recommendation for Beth:|Here's why this book is a good recommendation for Beth:|This book is a good recommendation for Beth because|This book is recommended for Beth because|Here's why this book is recommended for Beth:)\s*/i, '');
+            insightText = insightText.replace(new RegExp(`^\\*\\*Why "${title}" for Beth\\?\\*\\*\\n\\n`, 'i'), '');
+            insightText = insightText.replace(/^(This book is recommended for you because|You might enjoy this book because|This book aligns with your preferences because|This book is a great fit for you because)\s*/i, '');
+
+            showMessage(`${insightText}`, false, true);
+        } else {
+            console.error("ERROR: LLM response structure unexpected or no candidates:", insightResult);
+            showMessage('Could not generate insight. Please try again.', false, false);
+        }
+
+    }
+    catch (error) {
+        console.error('ERROR: Error calling Gemini API for insight (network/fetch issue):', error);
+        showMessage('Failed to get personalized insight. Please check your network connection or API key.', false, false);
+    }
+}
 
         /**
          * Evaluates a book for Beth using AI, providing pros, cons, and a summary.
