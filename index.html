@@ -23,7 +23,85 @@
         window.auth = null; // Still initialized, but not used for user login in this PIN-based setup
         window.adminUserId = null; // This will store the fixed user ID for Beth
         window.analytics = null; // Added analytics global
+        
+// FIXED: Add Firestore availability tracking
+window.firestoreAvailable = true; // Start optimistic, set to false if operations fail
+window.offlineModeNotified = false; // Track if user has been notified about offline mode
 
+// FIXED: Add localStorage helper functions for fallback
+function getFromLocalStorage(key) {
+    try {
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : [];
+    } catch (e) {
+        console.warn(`Failed to get data from localStorage for key: ${key}`, e);
+        return [];
+    }
+}
+
+function saveToLocalStorage(key, data) {
+    try {
+        localStorage.setItem(key, JSON.stringify(data));
+        return true;
+    } catch (e) {
+        console.warn(`Failed to save data to localStorage for key: ${key}`, e);
+        return false;
+    }
+}
+
+function notifyOfflineMode() {
+    if (!window.offlineModeNotified && !window.firestoreAvailable) {
+        console.warn("Firestore is not available. The app is running in offline mode using local storage.");
+        showMessage("Working in offline mode. Changes will be saved locally.", false, false);
+        window.offlineModeNotified = true;
+    }
+}
+
+function loadDataFromLocalStorage() {
+    try {
+        window.recommendedBooks = getFromLocalStorage(RECOMMENDED_BOOKS_KEY);
+        window.bookShelfBooks = getFromLocalStorage(BOOK_SHELF_BOOKS_KEY);
+        window.flaggedBooks = getFromLocalStorage(FLAGGED_BOOKS_KEY);
+        window.bethDeletedBooks = getFromLocalStorage(BETH_DELETED_BOOKS_KEY);
+        window.adminAlerts = getFromLocalStorage(ADMIN_ALERTS_KEY);
+        window.adminPendingRecommendations = getFromLocalStorage(ADMIN_PENDING_RECS_KEY);
+        window.adminApprovedBooks = getFromLocalStorage(ADMIN_APPROVED_BOOKS_KEY);
+        console.log("Data loaded from localStorage as Firestore fallback");
+        
+        if (window.uiReadyForDisplay) {
+            triggerAllDisplayFunctions();
+        }
+    } catch (e) {
+        console.warn("Failed to load data from localStorage", e);
+    }
+}
+
+function saveDataToLocalStorage() {
+    if (!window.firestoreAvailable) {
+        try {
+            saveToLocalStorage(RECOMMENDED_BOOKS_KEY, window.recommendedBooks);
+            saveToLocalStorage(BOOK_SHELF_BOOKS_KEY, window.bookShelfBooks);
+            saveToLocalStorage(FLAGGED_BOOKS_KEY, window.flaggedBooks);
+            saveToLocalStorage(BETH_DELETED_BOOKS_KEY, window.bethDeletedBooks);
+            saveToLocalStorage(ADMIN_ALERTS_KEY, window.adminAlerts);
+            saveToLocalStorage(ADMIN_PENDING_RECS_KEY, window.adminPendingRecommendations);
+            saveToLocalStorage(ADMIN_APPROVED_BOOKS_KEY, window.adminApprovedBooks);
+        } catch (e) {
+            console.warn("Failed to save data to localStorage", e);
+        }
+    }
+}
+
+function triggerAllDisplayFunctions() {
+    safeDisplayFunction(displayRecommendedBooks, 'displayRecommendedBooks');
+    safeDisplayFunction(displayBookShelfBooks, 'displayBookShelfBooks');
+    safeDisplayFunction(displayBethsDeletedBooks, 'displayBethsDeletedBooks');
+    safeDisplayFunction(displayFlaggedBooks, 'displayFlaggedBooks');
+    safeDisplayFunction(displayAdminAlerts, 'displayAdminAlerts');
+    safeDisplayFunction(displayAdminPendingRecommendations, 'displayAdminPendingRecommendations');
+    safeDisplayFunction(displayAdminApprovedBooks, 'displayAdminApprovedBooks');
+}
+        
         // Global data stores (will be updated by Firestore listeners)
         window.recommendedBooks = [];
         window.bookShelfBooks = [];
@@ -128,24 +206,80 @@
          * @param {string} collectionName - The name of the Firestore collection.
          * @param {string|null} userId - The user ID if the collection is user-specific, null for public.
          */
-        async function setBookInFirestore(book, collectionName, userId = null) {
-            if (!window.db) { console.error("Firestore DB not initialized."); return; }
-            if (!book.workKey) { console.error("Book missing workKey, cannot save to Firestore:", book); return; }
-            // Ensure userId is provided for user-specific collections
-            const userSpecificCollections = ['flagged_books', 'admin_alerts', 'admin_pending_recs', 'admin_approved_books', 'negative_feedback'];
-            if (userSpecificCollections.includes(collectionName) && userId === null) {
-                // For this PIN-based system, all admin-specific data will use BETH_FIREBASE_USER_ID
-                userId = window.adminUserId;
-            }
+async function setBookInFirestore(book, collectionName, userId = null) {
+    if (!window.firestoreAvailable) {
+        notifyOfflineMode();
+        return setBookInLocalStorage(book, collectionName);
+    }
 
-            try {
-                const docRef = doc(window.db, getCollectionPath(collectionName, userId), book.workKey); // Pass book.workKey as doc ID
-                await setDoc(docRef, book);
-                console.log(`Firestore: Book "${book.title}" added/updated in "${collectionName}" with workKey: ${book.workKey}`);
-            } catch (e) {
-                console.error(`Error setting book in ${collectionName}:`, e);
-            }
+    if (!window.db) { 
+        console.warn("Firestore DB not initialized."); 
+        return setBookInLocalStorage(book, collectionName);
+    }
+    if (!book.workKey) { 
+        console.warn("Book missing workKey, cannot save to Firestore:", book); 
+        return false;
+    }
+    
+    const userSpecificCollections = ['flagged_books', 'admin_alerts', 'admin_pending_recs', 'admin_approved_books', 'negative_feedback'];
+    if (userSpecificCollections.includes(collectionName) && userId === null) {
+        userId = window.adminUserId;
+    }
+
+    try {
+        const docRef = doc(window.db, getCollectionPath(collectionName, userId), book.workKey);
+        await setDoc(docRef, book);
+        console.log(`Firestore: Book "${book.title}" added/updated in "${collectionName}" with workKey: ${book.workKey}`);
+        return true;
+    } catch (e) {
+        console.warn(`Firestore operation failed for ${collectionName}, falling back to localStorage:`, e);
+        if (e.code === 'permission-denied') {
+            window.firestoreAvailable = false;
+            notifyOfflineMode();
         }
+        return setBookInLocalStorage(book, collectionName);
+    }
+}
+
+function setBookInLocalStorage(book, collectionName) {
+    try {
+        const collectionMap = {
+            'recommended_books': 'recommendedBooks',
+            'bookshelf_books': 'bookShelfBooks', 
+            'flagged_books': 'flaggedBooks',
+            'beth_deleted_books': 'bethDeletedBooks',
+            'admin_pending_recs': 'adminPendingRecommendations',
+            'admin_approved_books': 'adminApprovedBooks'
+        };
+        
+        const globalArrayName = collectionMap[collectionName];
+        if (globalArrayName && window[globalArrayName]) {
+            window[globalArrayName] = window[globalArrayName].filter(b => b.workKey !== book.workKey);
+            window[globalArrayName].push(book);
+            
+            const localStorageMap = {
+                'recommendedBooks': RECOMMENDED_BOOKS_KEY,
+                'bookShelfBooks': BOOK_SHELF_BOOKS_KEY,
+                'flaggedBooks': FLAGGED_BOOKS_KEY,
+                'bethDeletedBooks': BETH_DELETED_BOOKS_KEY,
+                'adminPendingRecommendations': ADMIN_PENDING_RECS_KEY,
+                'adminApprovedBooks': ADMIN_APPROVED_BOOKS_KEY
+            };
+            
+            const localStorageKey = localStorageMap[globalArrayName];
+            if (localStorageKey) {
+                saveToLocalStorage(localStorageKey, window[globalArrayName]);
+            }
+            
+            console.log(`LocalStorage: Book "${book.title}" added/updated in "${collectionName}"`);
+            return true;
+        }
+        return false;
+    } catch (e) {
+        console.warn(`Failed to save book to localStorage for collection ${collectionName}:`, e);
+        return false;
+    }
+}
 
         /**
          * Deletes a book from a specified Firestore collection.
@@ -3201,17 +3335,18 @@
                 measurementId: "G-X584KXZ8TX"
             };
 
-            try {
-                window.firebaseApp = initializeApp(firebaseConfig);
-                window.db = getFirestore(window.firebaseApp);
-                window.auth = getAuth(window.firebaseApp); // Auth service initialized, but not used for PIN login
-                window.analytics = getAnalytics(window.firebaseApp); // Initialize analytics
-                console.log("Firebase initialized successfully.");
-            } catch (error) {
-                console.error("ERROR: Failed to initialize Firebase:", error);
-                showMessage(`Failed to initialize Firebase. Please check your console for errors.`, false, true);
-                return; // Stop execution if Firebase initialization fails
-            }
+try {
+    window.firebaseApp = initializeApp(firebaseConfig);
+    window.db = getFirestore(window.firebaseApp);
+    window.auth = getAuth(window.firebaseApp);
+    window.analytics = getAnalytics(window.firebaseApp);
+    console.log("Firebase initialized successfully.");
+} catch (error) {
+    console.error("ERROR: Failed to initialize Firebase:", error);
+    window.firestoreAvailable = false;
+    notifyOfflineMode();
+    loadDataFromLocalStorage();
+}
 
             // FIXED: Setup event delegation after DOM is ready
             setupEventDelegation();
