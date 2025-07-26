@@ -1151,83 +1151,102 @@ function setBookInLocalStorage(book, collectionName) {
         /**
          * Manually adds a book to the curated list using an Open Library Work URL (admin action).
          */
-        async function addBookFromOpenLibraryUrl() {
-            const urlInput = safeGetElementSync('manual-add-url-input');
-            const url = urlInput ? urlInput.value.trim() : '';
-            const loader = safeGetElementSync('search-loader');
-            const message = safeGetElementSync('search-message');
+async function addBookFromOpenLibraryUrl() {
+    const urlInput = safeGetElementSync('manual-add-url-input');
+    const url = urlInput ? urlInput.value.trim() : '';
+    const loader = safeGetElementSync('search-loader');
+    const message = safeGetElementSync('search-message');
 
-            if (message) message.classList.add('hidden');
-            if (loader) loader.style.display = 'block';
+    if (message) message.classList.add('hidden');
+    if (loader) loader.style.display = 'block';
 
-            const workKeyMatch = url.match(/\/works\/(OL\d+W)/);
-            if (!workKeyMatch || !workKeyMatch[1]) {
-                if (loader) loader.style.display = 'none';
-                showMessage('Invalid Open Library Work URL. Please provide a URL like https://openlibrary.org/works/OL12345W', false, false);
-                return;
+    // FIXED: Accept both /works/ and /books/ URLs
+    const workKeyMatch = url.match(/\/works\/(OL\d+W)/);
+    const bookKeyMatch = url.match(/\/books\/(OL\d+M)/);
+    
+    if (!workKeyMatch && !bookKeyMatch) {
+        if (loader) loader.style.display = 'none';
+        showMessage('Invalid Open Library URL. Please provide a URL like https://openlibrary.org/works/OL12345W or https://openlibrary.org/books/OL12345M', false, false);
+        return;
+    }
+
+    try {
+        let workKey;
+        
+        if (workKeyMatch) {
+            // Direct work URL
+            workKey = workKeyMatch[1];
+        } else {
+            // Book URL - need to get work key from book record
+            const bookKey = bookKeyMatch[1];
+            const bookResponse = await fetch(`https://openlibrary.org/books/${bookKey}.json`);
+            if (!bookResponse.ok) {
+                throw new Error(`Failed to fetch book details: ${bookResponse.status}`);
             }
-
-            const workKey = workKeyMatch[1];
-
-            try {
-                const bookDetails = await fetchBookDetailsFromOpenLibrary(workKey);
-
-                if (!bookDetails) {
-                    if (loader) loader.style.display = 'none';
-                    showMessage('Failed to retrieve book details from the provided Open Library URL. Please check the URL and try again.', false, false);
-                    return;
-                }
-
-                // Construct the new book object. Note: For manual adds, we bypass some filters.
-                const newBook = {
-                    title: bookDetails.title,
-                    author: bookDetails.author,
-                    description: bookDetails.description,
-                    imageUrl: bookDetails.imageUrl,
-                    goodreadsUrl: bookDetails.goodreadsUrl,
-                    rating: bookDetails.rating,
-                    subjects: bookDetails.subjects,
-                    userRating: null, // Manually added books start with no user rating
-                    source: 'Manually Added (Admin)',
-                    workKey: bookDetails.workKey, // Crucial for Firestore document ID
-                    first_publish_year: bookDetails.first_publish_year // Ensure this is not undefined
-                };
-
-                // Check if book already exists in recommendedBooks (Firestore data)
-                const isDuplicate = window.recommendedBooks.some(book => book.workKey === newBook.workKey);
-
-                if (!isDuplicate) {
-                    await setBookInFirestore(newBook, 'recommended_books');
-                    showMessage(`"${newBook.title}" has been manually added to Beth's Book Club!`, false, false);
-                    if (urlInput) urlInput.value = ''; // Clear input
-                    showView('recommendations-view'); // Ensure we are on the recommendations view
-                } else {
-                    showMessage(`"${newBook.title}" is already in Beth's Book Club!`, false, false);
-                }
-
+            const bookData = await bookResponse.json();
+            
+            if (!bookData.works || bookData.works.length === 0) {
+                throw new Error('No work record found for this book');
             }
-            catch (error) {
-                console.error('ERROR: Error manually adding book from Open Library URL:', error);
-                showMessage('An error occurred while trying to add the book. Please try again.', false, false);
+            
+            // Extract work key from the work reference
+            const workPath = bookData.works[0].key; // e.g., "/works/OL123W"
+            const extractedWorkKey = workPath.match(/\/works\/(OL\d+W)/);
+            if (!extractedWorkKey) {
+                throw new Error('Invalid work key format');
             }
-            finally {
-                if (loader) loader.style.display = 'none';
-            }
+            workKey = extractedWorkKey[1];
         }
 
-        /**
-         * Removes a book from Beth's bookshelf and moves it to her deleted books list.
-         * @param {string} bookWorkKey - The workKey of the book to remove.
-         */
-        async function removeBookFromBookshelf(bookWorkKey) {
-            const bookToRemove = window.bookShelfBooks.find(book => book.workKey === bookWorkKey);
+        const bookDetails = await fetchBookDetailsFromOpenLibrary(workKey);
 
-            if (bookToRemove) {
-                await deleteBookFromFirestore(bookWorkKey, 'bookshelf_books'); // Remove from bookshelf
-                await setBookInFirestore(bookToRemove, 'beth_deleted_books'); // Add to Beth's deleted list
-                showMessage(`"${bookToRemove.title}" has been moved to Beth's Deleted Books.`, false, false);
-            }
+        if (!bookDetails) {
+            if (loader) loader.style.display = 'none';
+            showMessage('Failed to retrieve book details from the provided Open Library URL. Please check the URL and try again.', false, false);
+            return;
         }
+
+        const newBook = {
+            title: bookDetails.title,
+            author: bookDetails.author,
+            description: bookDetails.description,
+            imageUrl: bookDetails.imageUrl,
+            goodreadsUrl: bookDetails.goodreadsUrl,
+            rating: bookDetails.rating,
+            subjects: bookDetails.subjects,
+            userRating: null,
+            source: 'Manually Added (Admin)',
+            workKey: bookDetails.workKey,
+            first_publish_year: bookDetails.first_publish_year
+        };
+
+        const isDuplicate = window.recommendedBooks.some(book => book.workKey === newBook.workKey);
+
+        if (!isDuplicate) {
+            await setBookInFirestore(newBook, 'recommended_books');
+            
+            if (!window.firestoreAvailable) {
+                window.recommendedBooks.push(newBook);
+                saveDataToLocalStorage();
+                if (window.uiReadyForDisplay) {
+                    safeDisplayFunction(displayRecommendedBooks, 'displayRecommendedBooks');
+                }
+            }
+            
+            showMessage(`"${newBook.title}" has been manually added to Beth's Book Club!`, false, false);
+            if (urlInput) urlInput.value = '';
+            showView('recommendations-view');
+        } else {
+            showMessage(`"${newBook.title}" is already in Beth's Book Club!`, false, false);
+        }
+
+    } catch (error) {
+        console.error('ERROR: Error manually adding book from Open Library URL:', error);
+        showMessage(`An error occurred while trying to add the book: ${error.message}. Please try again.`, false, false);
+    } finally {
+        if (loader) loader.style.display = 'none';
+    }
+}
 
         /**
          * Restores a book from Beth's deleted books list back to her bookshelf.
@@ -2341,98 +2360,116 @@ function setBookInLocalStorage(book, collectionName) {
          * Evaluates a book for Beth using AI, providing pros, cons, and a summary.
          * Displays the evaluation in a message box and offers an option to add to recommendations.
          */
-        async function evaluateBookForBeth() {
-            const urlInput = safeGetElementSync('evaluate-book-url-input');
-            const url = urlInput ? urlInput.value.trim() : '';
-            const loader = safeGetElementSync('search-loader');
-            const message = safeGetElementSync('search-message');
+async function evaluateBookForBeth() {
+    const urlInput = safeGetElementSync('evaluate-book-url-input');
+    const url = urlInput ? urlInput.value.trim() : '';
+    const loader = safeGetElementSync('search-loader');
+    const message = safeGetElementSync('search-message');
 
-            if (message) message.classList.add('hidden');
-            if (loader) loader.style.display = 'block';
-            showMessage('Evaluating book for Beth... This might take a moment.', true, false);
+    if (message) message.classList.add('hidden');
+    if (loader) loader.style.display = 'block';
+    showMessage('Evaluating book for Beth... This might take a moment.', true, false);
 
-            const workKeyMatch = url.match(/\/works\/(OL\d+W)/);
-            if (!workKeyMatch || !workKeyMatch[1]) {
-                if (loader) loader.style.display = 'none';
-                showMessage('Invalid Open Library Work URL. Please provide a URL like https://openlibrary.org/works/OL12345W', false, false);
-                return;
+    // FIXED: Accept both /works/ and /books/ URLs
+    const workKeyMatch = url.match(/\/works\/(OL\d+W)/);
+    const bookKeyMatch = url.match(/\/books\/(OL\d+M)/);
+    
+    if (!workKeyMatch && !bookKeyMatch) {
+        if (loader) loader.style.display = 'none';
+        showMessage('Invalid Open Library URL. Please provide a URL like https://openlibrary.org/works/OL12345W or https://openlibrary.org/books/OL12345M', false, false);
+        return;
+    }
+
+    try {
+        let workKey;
+        
+        if (workKeyMatch) {
+            // Direct work URL
+            workKey = workKeyMatch[1];
+        } else {
+            // Book URL - need to get work key from book record
+            const bookKey = bookKeyMatch[1];
+            const bookResponse = await fetch(`https://openlibrary.org/books/${bookKey}.json`);
+            if (!bookResponse.ok) {
+                throw new Error(`Failed to fetch book details: ${bookResponse.status}`);
             }
-
-            const workKey = workKeyMatch[1];
-
-            try {
-                const bookDetails = await fetchBookDetailsFromOpenLibrary(workKey);
-
-                if (!bookDetails) {
-                    if (loader) loader.style.display = 'none';
-                    showMessage('Failed to retrieve book details from the provided Open Library URL. Please check the URL and try again.', false, false);
-                    return;
-                }
-
-                const { title, author } = bookDetails;
-
-                // Use window.bookShelfBooks which is updated by Firestore listener
-                const lovedBooks = window.bookShelfBooks.filter(b => b.userRating === 'love');
-                const likedBooks = window.bookShelfBooks.filter(b => b.userRating === 'like');
-
-                // Calculate the score using the shared scoring function
-                const internalScore = calculateBookScore(bookDetails, lovedBooks, likedBooks, new Set());
-
-                // Use the new helper function to get evaluation
-                const evaluation = await getAIProsConsSummary(bookDetails);
-
-                let evaluationHtml = `
-                    <h3 class="text-xl font-bold mb-2">Evaluation for "${escapeHtmlAttribute(title)}" by ${escapeHtmlAttribute(author)}</h3>
-                    <p class="text-lg font-semibold mb-4">Internal Score: <span class="text-emerald-600">${internalScore}/100</span></p>
-                    <p class="mb-4">${escapeHtmlAttribute(evaluation.summary)}</p>
-                    <div class="mb-4">
-                        <h4 class="font-semibold text-green-700">Pros:</h4>
-                        <ul class="list-disc list-inside text-left">
-                            ${evaluation.pros.map(p => `<li>${escapeHtmlAttribute(p)}</li>`).join('')}
-                        </ul>
-                    </div>
-                    <div class="mb-4">
-                        <h4 class="font-semibold text-red-700">Cons:</h4>
-                        <ul class="list-disc list-inside text-left">
-                            ${evaluation.cons.map(c => `<li>${escapeHtmlAttribute(c)}</li>`).join('')}
-                        </ul>
-                    </div>
-                    <button id="add-evaluated-book-button" class="action-button mt-4 px-6 py-3 bg-emerald-600 hover:bg-emerald-700">Add to Recommended Reads</button>
-                `;
-
-                showMessage(evaluationHtml, false, true); // Show as LLM insight
-
-                // Attach event listener to the "Add to Recommended Reads" button
-                const addEvaluatedBookButton = document.getElementById('add-evaluated-book-button');
-                if (addEvaluatedBookButton) {
-                    addEvaluatedBookButton.addEventListener('click', () => {
-                        // Create a synthetic event object for addBookToCuratedList
-                        const syntheticEvent = {
-                            currentTarget: {
-                                dataset: {
-                                    bookJson: JSON.stringify(bookDetails) // Use the original bookDetails
-                                }
-                            }
-                        };
-                        addBookToCuratedList(syntheticEvent);
-                        const messageBox = safeGetElementSync('message-box');
-                        if (messageBox) {
-                            messageBox.style.display = 'none'; // Close evaluation message
-                            messageBox.classList.remove('llm-insight');
-                        }
-                        if (urlInput) urlInput.value = ''; // Clear input
-                    }, { once: true }); // Use { once: true } to prevent multiple listeners
-                }
-
+            const bookData = await bookResponse.json();
+            
+            if (!bookData.works || bookData.works.length === 0) {
+                throw new Error('No work record found for this book');
             }
-            catch (error) {
-                console.error('ERROR: Error during book evaluation:', error);
-                showMessage('Failed to evaluate book. Please try again later.', false, false);
+            
+            // Extract work key from the work reference
+            const workPath = bookData.works[0].key; // e.g., "/works/OL123W"
+            const extractedWorkKey = workPath.match(/\/works\/(OL\d+W)/);
+            if (!extractedWorkKey) {
+                throw new Error('Invalid work key format');
             }
-            finally {
-                if (loader) loader.style.display = 'none';
-            }
+            workKey = extractedWorkKey[1];
         }
+
+        const bookDetails = await fetchBookDetailsFromOpenLibrary(workKey);
+
+        if (!bookDetails) {
+            if (loader) loader.style.display = 'none';
+            showMessage('Failed to retrieve book details from the provided Open Library URL. Please check the URL and try again.', false, false);
+            return;
+        }
+
+        const { title, author } = bookDetails;
+        const lovedBooks = window.bookShelfBooks.filter(b => b.userRating === 'love');
+        const likedBooks = window.bookShelfBooks.filter(b => b.userRating === 'like');
+        const internalScore = calculateBookScore(bookDetails, lovedBooks, likedBooks, new Set());
+        const evaluation = await getAIProsConsSummary(bookDetails);
+
+        let evaluationHtml = `
+            <h3 class="text-xl font-bold mb-2">Evaluation for "${escapeHtmlAttribute(title)}" by ${escapeHtmlAttribute(author)}</h3>
+            <p class="text-lg font-semibold mb-4">Internal Score: <span class="text-emerald-600">${internalScore}/100</span></p>
+            <p class="mb-4">${escapeHtmlAttribute(evaluation.summary)}</p>
+            <div class="mb-4">
+                <h4 class="font-semibold text-green-700">Pros:</h4>
+                <ul class="list-disc list-inside text-left">
+                    ${evaluation.pros.map(p => `<li>${escapeHtmlAttribute(p)}</li>`).join('')}
+                </ul>
+            </div>
+            <div class="mb-4">
+                <h4 class="font-semibold text-red-700">Cons:</h4>
+                <ul class="list-disc list-inside text-left">
+                    ${evaluation.cons.map(c => `<li>${escapeHtmlAttribute(c)}</li>`).join('')}
+                </ul>
+            </div>
+            <button id="add-evaluated-book-button" class="action-button mt-4 px-6 py-3 bg-emerald-600 hover:bg-emerald-700">Add to Recommended Reads</button>
+        `;
+
+        showMessage(evaluationHtml, false, true);
+
+        const addEvaluatedBookButton = document.getElementById('add-evaluated-book-button');
+        if (addEvaluatedBookButton) {
+            addEvaluatedBookButton.addEventListener('click', () => {
+                const syntheticEvent = {
+                    currentTarget: {
+                        dataset: {
+                            bookJson: JSON.stringify(bookDetails)
+                        }
+                    }
+                };
+                addBookToCuratedList(syntheticEvent);
+                const messageBox = safeGetElementSync('message-box');
+                if (messageBox) {
+                    messageBox.style.display = 'none';
+                    messageBox.classList.remove('llm-insight');
+                }
+                if (urlInput) urlInput.value = '';
+            }, { once: true });
+        }
+
+    } catch (error) {
+        console.error('ERROR: Error during book evaluation:', error);
+        showMessage(`Failed to evaluate book: ${error.message}. Please try again.`, false, false);
+    } finally {
+        if (loader) loader.style.display = 'none';
+    }
+}
 
         /**
          * Controls the visibility of admin-specific UI elements.
@@ -3997,16 +4034,15 @@ try {
                 </div>
 
                 <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
-                    <input type="text" id="manual-add-url-input" placeholder="Paste Open Library Work URL (e.g., https://openlibrary.org/works/OL12345W)"
-                           class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700">
+                   <input type="text" id="manual-add-url-input" placeholder="Paste Open Library URL (works or books: https://openlibrary.org/works/OL12345W or https://openlibrary.org/books/OL12345M)"
+       class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700">
                     <button id="manual-add-button" class="action-button px-6 py-3 bg-blue-600 hover:bg-blue-700">Add Manually</button>
                 </div>
 
                 <!-- New: Evaluate Book for Beth -->
                 <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
-                    <input type="text" id="evaluate-book-url-input" placeholder="Evaluate Book for Beth (Open Library Work URL)"
-                           class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700">
-                    <button id="evaluate-book-button" class="action-button px-6 py-3 bg-purple-600 hover:bg-purple-700">Evaluate Book</button>
+                 <input type="text" id="evaluate-book-url-input" placeholder="Evaluate Book for Beth (Open Library URL: works or books)"
+       class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-700">     <button id="evaluate-book-button" class="action-button px-6 py-3 bg-purple-600 hover:bg-purple-700">Evaluate Book</button>
                 </div>
 
 
