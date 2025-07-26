@@ -1352,7 +1352,43 @@ async function addBookFromOpenLibraryUrl() {
                 showMessage(`"${bookToRestore.title}" has been restored to Recommended Reads!`, false, false);
             }
         }
+/**
+ * Skips a book from the pending recommendations list.
+ * @param {string} bookWorkKey - The workKey of the book to skip.
+ */
+async function skipPendingBook(bookWorkKey) {
+    const bookToSkip = window.adminPendingRecommendations.find(book => book.workKey === bookWorkKey);
+    if (bookToSkip) {
+        await deleteBookFromFirestore(bookWorkKey, 'admin_pending_recs', window.adminUserId);
+        showMessage(`"${bookToSkip.title}" has been skipped.`, false, false);
+    }
+}
 
+/**
+ * Removes a book from Beth's bookshelf.
+ * @param {string} bookWorkKey - The workKey of the book to remove.
+ */
+async function removeBookFromBookshelf(bookWorkKey) {
+    const bookToRemove = window.bookShelfBooks.find(book => book.workKey === bookWorkKey);
+    if (bookToRemove) {
+        await deleteBookFromFirestore(bookWorkKey, 'bookshelf_books');
+        // Move to Beth's deleted books
+        await setBookInFirestore(bookToRemove, 'beth_deleted_books');
+        showMessage(`"${bookToRemove.title}" has been removed from your bookshelf.`, false, false);
+    }
+}
+
+/**
+ * Removes a book from the admin approved books list.
+ * @param {string} bookWorkKey - The workKey of the book to remove.
+ */
+async function removeBookFromApproved(bookWorkKey) {
+    const bookToRemove = window.adminApprovedBooks.find(book => book.workKey === bookWorkKey);
+    if (bookToRemove) {
+        await deleteBookFromFirestore(bookWorkKey, 'admin_approved_books', window.adminUserId);
+        showMessage(`"${bookToRemove.title}" has been removed from approved books.`, false, false);
+    }
+}
         /**
          * Handles the "Pass" button click for Beth. Moves the book to flagged books (admin view).
          * @param {string} bookWorkKey - The workKey of the book to pass.
@@ -2045,6 +2081,38 @@ async function generateRecommendations() {
             errorMessage += 'Please try again later.';
         }
         showMessage(errorMessage, false, false);
+        }
+                        // Sort and process final recommendations
+                finalRecommendations.sort((a, b) => b.score - a.score);
+                console.log("generateRecommendations: Final recommendations:", finalRecommendations.length);
+
+                if (loader) loader.style.display = 'none';
+
+                if (finalRecommendations.length > 0) {
+                    let autoApprovedCount = 0;
+                    let pendingApprovalCount = 0;
+
+                    // FIXED: Process recommendations with error handling
+                    for (const book of finalRecommendations.slice(0, TARGET_BOOKS)) {
+                        try {
+                            const isDuplicateInRecommended = window.recommendedBooks.some(b => b.workKey === book.workKey);
+                            
+                            if (!isDuplicateInRecommended) {
+                                if (book.score >= AUTO_APPROVE_SCORE_THRESHOLD) {
+                                    // Auto-approve: add directly to recommended_books
+                                    await setBookInFirestore(book, 'recommended_books');
+                                    autoApprovedCount++;
+                                } else {
+                                    // Requires admin approval: add to admin_pending_recs
+                                    await setBookInFirestore(book, 'admin_pending_recs', window.adminUserId);
+                                    pendingApprovalCount++;
+                                }
+                            }
+                        } catch (firestoreError) {
+                            console.error("generateRecommendations: Failed to save book:", book.title, firestoreError);
+                            // Continue with next book instead of failing completely
+                        }
+                    }
     }
 }
 
@@ -2110,38 +2178,6 @@ async function getGenreSpecificRecommendations(limit = 40) {
     console.log("getGenreSpecificRecommendations: Found", lightweightCandidates.length, "candidates.");
     return lightweightCandidates;
 }
-        
-                // Sort and process final recommendations
-                finalRecommendations.sort((a, b) => b.score - a.score);
-                console.log("generateRecommendations: Final recommendations:", finalRecommendations.length);
-
-                if (loader) loader.style.display = 'none';
-
-                if (finalRecommendations.length > 0) {
-                    let autoApprovedCount = 0;
-                    let pendingApprovalCount = 0;
-
-                    // FIXED: Process recommendations with error handling
-                    for (const book of finalRecommendations.slice(0, TARGET_BOOKS)) {
-                        try {
-                            const isDuplicateInRecommended = window.recommendedBooks.some(b => b.workKey === book.workKey);
-                            
-                            if (!isDuplicateInRecommended) {
-                                if (book.score >= AUTO_APPROVE_SCORE_THRESHOLD) {
-                                    // Auto-approve: add directly to recommended_books
-                                    await setBookInFirestore(book, 'recommended_books');
-                                    autoApprovedCount++;
-                                } else {
-                                    // Requires admin approval: add to admin_pending_recs
-                                    await setBookInFirestore(book, 'admin_pending_recs', window.adminUserId);
-                                    pendingApprovalCount++;
-                                }
-                            }
-                        } catch (firestoreError) {
-                            console.error("generateRecommendations: Failed to save book:", book.title, firestoreError);
-                            // Continue with next book instead of failing completely
-                        }
-                    }
 
                     let messageText = '';
                     if (autoApprovedCount > 0) {
@@ -2162,7 +2198,6 @@ async function getGenreSpecificRecommendations(limit = 40) {
             } catch (error) {
                 console.error('ERROR: Error during recommendation generation:', error);
                 if (loader) loader.style.display = 'none';
-                }
                 // FIXED: Provide specific error messages based on error type
                 let errorMessage = 'Failed to generate recommendations. ';
                 if (error.message.includes('Timeout')) {
@@ -3405,74 +3440,6 @@ async function moveToBethsRecommendations(event) {
          * FIXED: Initializes the main application after successful PIN login with improved sequencing.
          * @param {boolean} isAdminLogin - True if the login was via the admin PIN.
          */
-        async function initializeAppContent(isAdminLogin = false) {
-            // Set the fixed admin user ID
-            window.adminUserId = BETH_FIREBASE_USER_ID;
-            console.log("App Content Initialized: Admin User ID set to", window.adminUserId);
-            console.log(`initializeAppContent: isAdminLogin = ${isAdminLogin}`);
-
-            // FIXED: Perform migrations first
-            console.log("Initializing App Content: Starting local storage migrations...");
-            await migrateLocalStorageToFirestore(RECOMMENDED_BOOKS_KEY, MIGRATED_RECOMMENDED_BOOKS_FLAG, 'recommended_books');
-            await migrateLocalStorageToFirestore(BOOK_SHELF_BOOKS_KEY, MIGRATED_BOOKSHELF_BOOKS_FLAG, 'bookshelf_books');
-            await migrateLocalStorageToFirestore(FLAGGED_BOOKS_KEY, MIGRATED_FLAGGED_BOOKS_FLAG, 'flagged_books', window.adminUserId);
-            await migrateLocalStorageToFirestore(BETH_DELETED_BOOKS_KEY, MIGRATED_BETH_DELETED_BOOKS_FLAG, 'beth_deleted_books');
-            await migrateLocalStorageToFirestore(ADMIN_ALERTS_KEY, MIGRATED_ADMIN_ALERTS_FLAG, 'admin_alerts', window.adminUserId);
-            await migrateLocalStorageToFirestore(ADMIN_PENDING_RECS_KEY, MIGRATED_ADMIN_PENDING_RECS_FLAG, 'admin_pending_recs', window.adminUserId);
-            await migrateLocalStorageToFirestore(ADMIN_APPROVED_BOOKS_KEY, MIGRATED_ADMIN_APPROVED_BOOKS_FLAG, 'admin_approved_books', window.adminUserId);
-
-            // Negative feedback migration (special case as it's a simple array of strings)
-            const oldNegativeFeedback = localStorage.getItem(BETH_NEGATIVE_FEEDBACK_KEY);
-            if (oldNegativeFeedback && localStorage.getItem(MIGRATED_BETH_NEGATIVE_FEEDBACK_FLAG) !== 'true') {
-                try {
-                    const terms = JSON.parse(oldNegativeFeedback);
-                    if (Array.isArray(terms) && terms.length > 0) {
-                        console.log(`Initializing App Content: Migrating ${terms.length} negative feedback terms...`);
-                        for (const term of terms) {
-                            await addNegativeFeedbackToFirestore(term);
-                        }
-                        localStorage.setItem(MIGRATED_BETH_NEGATIVE_FEEDBACK_FLAG, 'true');
-                        localStorage.removeItem(BETH_NEGATIVE_FEEDBACK_KEY);
-                        console.log('Initializing App Content: Negative feedback migration completed.');
-                    }
-                } catch (e) {
-                    console.error("Initializing App Content: Error migrating negative feedback:", e);
-                }
-            }
-            console.log("Initializing App Content: Local storage migrations completed.");
-
-            // FIXED: Setup Firestore listeners after all migrations are potentially done
-            setupFirestoreListeners();
-            
-            // FIXED: Wait for listeners to be ready, then seed initial bookshelf
-            console.log("Initializing App Content: Waiting for Firestore listeners to be ready...");
-            const listenersReady = await waitForListenersReady();
-            if (listenersReady) {
-                console.log("Initializing App Content: Firestore listeners are ready, proceeding with seeding.");
-                await seedInitialBookshelf();
-            } else {
-                console.warn("Initializing App Content: Listeners not ready after waiting, proceeding anyway.");
-                await seedInitialBookshelf();
-            }
-
-            // Hide login screen
-            const loginScreen = safeGetElementSync('login-screen');
-            if (loginScreen) loginScreen.classList.add('hidden');
-            
-            // Show splash screen
-            const splashScreen = safeGetElementSync('splash-screen');
-            if (splashScreen) splashScreen.classList.remove('hidden');
-            console.log("initializeAppContent: Showing splash screen.");
-
-            // Set admin panel visibility based on login type
-            setAdminUIVisibility(isAdminLogin);
-
-            // The "Ready for More Recommendations!" button is now always visible for logged-in users.
-            const requestMoreContainer = safeGetElementSync('request-more-recs-container');
-            if (requestMoreContainer) requestMoreContainer.classList.remove('hidden');
-            console.log("initializeAppContent: 'Ready for More Recommendations' button visible.");
-        }
-
         /**
          * Handles logging out, returning to the login screen.
          */
