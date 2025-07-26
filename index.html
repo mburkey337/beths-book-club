@@ -3555,29 +3555,58 @@ async function moveToBethsRecommendations(event) {
             console.log("Event delegation setup completed");
         }
 
-        document.addEventListener('DOMContentLoaded', async () => {
-            // Set the current year in the footer
-            const currentYearElement = safeGetElementSync('current-year');
-            if (currentYearElement) {
-                currentYearElement.textContent = new Date().getFullYear();
+document.addEventListener('DOMContentLoaded', async () => {
+    // Set the current year in the footer
+    const currentYearElement = safeGetElementSync('current-year');
+    if (currentYearElement) {
+        currentYearElement.textContent = new Date().getFullYear();
+    }
+
+    // ... other initialization code ...
+
+    // --- PIN Login Event Listener ---
+    const pinInput = safeGetElementSync('pin-input');
+    const loginButton = safeGetElementSync('login-button');
+    const loginMessage = safeGetElementSync('login-message');
+
+    if (loginButton) {
+        loginButton.addEventListener('click', () => {
+            console.log("Login button clicked.");
+            const enteredPin = pinInput ? pinInput.value : '';
+            if (enteredPin === '7288') {
+                if (loginMessage) loginMessage.textContent = '';
+                console.log("Beth's PIN entered. Initializing app for Beth.");
+                initializeAppContent(false);
+            } else if (enteredPin === '2384') {
+                if (loginMessage) loginMessage.textContent = '';
+                console.log("Admin PIN entered. Initializing app for Admin.");
+                initializeAppContent(true);
+            } else {
+                if (loginMessage) {
+                    loginMessage.textContent = 'Incorrect PIN. Please try again.';
+                    loginMessage.classList.remove('hidden');
+                }
+                console.log("Incorrect PIN entered.");
             }
+        });
+    }
 
-            // Explicitly hide elements on load to ensure correct initial state
-            // ONLY HIDE THE VIEWS, NOT THE MAIN CONTENT CONTAINER
-            const elementsToHide = [
-                'admin-search-panel', 'nav-flagged-books', 'nav-admin-approved-books',
-                'request-more-recs-container', 'recommendations-view', 'bookshelf-view',
-                'beth-deleted-books-view', 'flagged-books-view', 'admin-approved-books-view', 'splash-screen'
-            ];
-            
-            elementsToHide.forEach(id => {
-                const element = safeGetElementSync(id);
-                if (element) element.classList.add('hidden');
-            });
+    if (pinInput) {
+        pinInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                loginButton?.click();
+            }
+        });
+    }
 
-            const loginScreen = safeGetElementSync('login-screen');
-            if (loginScreen) loginScreen.classList.remove('hidden'); // Show login screen initially
-            console.log("DOMContentLoaded: Initial UI state set.");
+    // Logout Button
+    const logoutButton = safeGetElementSync('logout-button');
+    if (logoutButton) {
+        logoutButton.addEventListener('click', handleLogout);
+    }
+
+    // ... rest of the event listeners ...
+});
 
             // FIXED: Single Firebase initialization block
             const firebaseConfig = {
