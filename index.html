@@ -2269,10 +2269,19 @@ async function addBookFromOpenLibraryUrl() {
          * Displays the insight in a message box.
          * @param {Event} event - The click event from the "Why for Me?" button.
          */
+        
 async function getPersonalizedInsight(event) {
     showMessage('Generating personalized insight... This might take a moment.', true, false);
 
-    const button = event.currentTarget;
+    // FIXED: Use event.target instead of event.currentTarget for event delegation
+    const button = event.target;
+    
+    // Verify this is actually the insight button
+    if (!button.classList.contains('get-insight-btn')) {
+        console.error("Event target is not an insight button:", button);
+        showMessage('Error: Invalid button clicked. Please try again.', false, false);
+        return;
+    }
     
     // FIXED: Add safety checks for the dataset
     if (!button.dataset.bookJson) {
@@ -2296,6 +2305,7 @@ async function getPersonalizedInsight(event) {
         return;
     }
 
+    // Rest of the function remains the same...
     const { title, author, description, subjects } = book;
 
     const favoriteGenres = BETH_GENRE_KEYWORDS.join(', ');
@@ -2373,7 +2383,6 @@ async function getPersonalizedInsight(event) {
         showMessage('Failed to get personalized insight. Please check your network connection or API key.', false, false);
     }
 }
-
         /**
          * Evaluates a book for Beth using AI, providing pros, cons, and a summary.
          * Displays the evaluation in a message box and offers an option to add to recommendations.
