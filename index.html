@@ -855,28 +855,31 @@ function setBookInLocalStorage(book, collectionName) {
                         <button class="action-button red-flag-btn w-full mt-2" data-workkey="${escapeJsStringForHtmlAttribute(book.workKey)}" data-author="${escapeJsStringForHtmlAttribute(book.author)}">🚩 Red Flag</button>
                     ` : '';
 
-// Stringify the entire book object and HTML-escape it for the data attribute
-// FIXED: Add safety checks for book data
-let bookJsonString = '';
-try {
-    if (book && book.workKey && book.title && book.author) {
-        bookJsonString = escapeHtmlAttribute(JSON.stringify(book));
-    } else {
-        console.warn("Incomplete book data for insight button:", book);
-        bookJsonString = escapeHtmlAttribute(JSON.stringify({
-            title: book.title || 'Unknown Title',
-            author: book.author || 'Unknown Author',
-            description: book.description || '',
-            subjects: book.subjects || [],
-            workKey: book.workKey || '',
-            rating: book.rating || null
-        }));
-    }
-} catch (stringifyError) {
-    console.error("Failed to stringify book for insight button:", book, stringifyError);
-    bookJsonString = escapeHtmlAttribute('{"error":"invalid_book_data"}');
-}
+                    // Stringify the entire book object and HTML-escape it for the data attribute
+                    const bookJsonString = escapeHtmlAttribute(JSON.stringify(book));
 
+                    bookCard.innerHTML = `
+                        <a href="${escapeJsStringForHtmlAttribute(book.goodreadsUrl)}" target="_blank" rel="noopener noreferrer" class="book-link">
+                            <img src="${escapeJsStringForHtmlAttribute(book.imageUrl)}" alt="${escapeJsStringForHtmlAttribute(book.title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover';">
+                            <div class="p-6 flex flex-col flex-grow">
+                                <h3 class="text-xl font-semibold text-gray-900 mb-2">${escapeJsStringForHtmlAttribute(book.title)}</h3>
+                                <p class="text-gray-600 text-sm mb-2">by ${escapeJsStringForHtmlAttribute(book.author)}</p>
+                                ${book.rating !== null ? getStarRatingHtml(book.rating) : ''}
+                                <p class="text-gray-700 text-base book-description flex-grow">${escapeJsStringForHtmlAttribute(description)}</p>
+                            </div>
+                        </a>
+                        <div class="p-6 pt-0 flex flex-col items-center">
+                            <button class="action-button w-full mb-4 pick-book-btn" data-workkey="${escapeJsStringForHtmlAttribute(book.workKey)}">Click to Pick!</button>
+                            <button class="action-button insight-btn w-full mb-4 get-insight-btn" data-book-json="${bookJsonString}">✨ Why for Me?</button>
+                            <button class="action-button pass-btn w-full pass-book-btn" data-workkey="${escapeJsStringForHtmlAttribute(book.workKey)}">Pass</button>
+                            ${adminActionsHtml}
+                        </div>
+                    `;
+                    bookListContainer.appendChild(bookCard);
+                });
+            }
+        }
+        
         /**
          * Removes a book from the main recommended list (admin action).
          * @param {string} bookWorkKey - The workKey of the book to remove.
