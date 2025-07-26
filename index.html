@@ -2162,7 +2162,7 @@ async function getGenreSpecificRecommendations(limit = 40) {
             } catch (error) {
                 console.error('ERROR: Error during recommendation generation:', error);
                 if (loader) loader.style.display = 'none';
-                
+                }
                 // FIXED: Provide specific error messages based on error type
                 let errorMessage = 'Failed to generate recommendations. ';
                 if (error.message.includes('Timeout')) {
