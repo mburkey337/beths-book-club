@@ -8,6 +8,80 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Firebase SDKs (Modular versions) -->
     <script type="module">
+        /**
+ * FIXED: Initializes the main application after successful PIN login with improved sequencing.
+ * @param {boolean} isAdminLogin - True if the login was via the admin PIN.
+ */
+async function initializeAppContent(isAdminLogin = false) {
+    // Set the fixed admin user ID
+    window.adminUserId = BETH_FIREBASE_USER_ID;
+    console.log("App Content Initialized: Admin User ID set to", window.adminUserId);
+    console.log(`initializeAppContent: isAdminLogin = ${isAdminLogin}`);
+
+    // FIXED: Perform migrations first
+    console.log("Initializing App Content: Starting local storage migrations...");
+    await migrateLocalStorageToFirestore(RECOMMENDED_BOOKS_KEY, MIGRATED_RECOMMENDED_BOOKS_FLAG, 'recommended_books');
+    await migrateLocalStorageToFirestore(BOOK_SHELF_BOOKS_KEY, MIGRATED_BOOKSHELF_BOOKS_FLAG, 'bookshelf_books');
+    await migrateLocalStorageToFirestore(FLAGGED_BOOKS_KEY, MIGRATED_FLAGGED_BOOKS_FLAG, 'flagged_books', window.adminUserId);
+    await migrateLocalStorageToFirestore(BETH_DELETED_BOOKS_KEY, MIGRATED_BETH_DELETED_BOOKS_FLAG, 'beth_deleted_books');
+    await migrateLocalStorageToFirestore(ADMIN_ALERTS_KEY, MIGRATED_ADMIN_ALERTS_FLAG, 'admin_alerts', window.adminUserId);
+    await migrateLocalStorageToFirestore(ADMIN_PENDING_RECS_KEY, MIGRATED_ADMIN_PENDING_RECS_FLAG, 'admin_pending_recs', window.adminUserId);
+    await migrateLocalStorageToFirestore(ADMIN_APPROVED_BOOKS_KEY, MIGRATED_ADMIN_APPROVED_BOOKS_FLAG, 'admin_approved_books', window.adminUserId);
+
+    // Negative feedback migration (special case as it's a simple array of strings)
+    const oldNegativeFeedback = localStorage.getItem(BETH_NEGATIVE_FEEDBACK_KEY);
+    if (oldNegativeFeedback && localStorage.getItem(MIGRATED_BETH_NEGATIVE_FEEDBACK_FLAG) !== 'true') {
+        try {
+            const terms = JSON.parse(oldNegativeFeedback);
+            if (Array.isArray(terms) && terms.length > 0) {
+                console.log(`Initializing App Content: Migrating ${terms.length} negative feedback terms...`);
+                for (const term of terms) {
+                    await addNegativeFeedbackToFirestore(term);
+                }
+                localStorage.setItem(MIGRATED_BETH_NEGATIVE_FEEDBACK_FLAG, 'true');
+                localStorage.removeItem(BETH_NEGATIVE_FEEDBACK_KEY);
+                console.log('Initializing App Content: Negative feedback migration completed.');
+            }
+        } catch (e) {
+            console.error("Initializing App Content: Error migrating negative feedback:", e);
+        }
+    }
+    console.log("Initializing App Content: Local storage migrations completed.");
+
+    // FIXED: Setup Firestore listeners after all migrations are potentially done
+    setupFirestoreListeners();
+    
+    // FIXED: Wait for listeners to be ready, then seed initial bookshelf
+    console.log("Initializing App Content: Waiting for Firestore listeners to be ready...");
+    const listenersReady = await waitForListenersReady();
+    if (listenersReady) {
+        console.log("Initializing App Content: Firestore listeners are ready, proceeding with seeding.");
+        await seedInitialBookshelf();
+    } else {
+        console.warn("Initializing App Content: Listeners not ready after waiting, proceeding anyway.");
+        await seedInitialBookshelf();
+    }
+
+    // Hide login screen
+    const loginScreen = safeGetElementSync('login-screen');
+    if (loginScreen) loginScreen.classList.add('hidden');
+    
+    // Show splash screen
+    const splashScreen = safeGetElementSync('splash-screen');
+    if (splashScreen) splashScreen.classList.remove('hidden');
+    console.log("initializeAppContent: Showing splash screen.");
+
+    // Set admin panel visibility based on login type
+    setAdminUIVisibility(isAdminLogin);
+
+    // The "Ready for More Recommendations!" button is now always visible for logged-in users.
+    const requestMoreContainer = safeGetElementSync('request-more-recs-container');
+    if (requestMoreContainer) requestMoreContainer.classList.remove('hidden');
+    console.log("initializeAppContent: 'Ready for More Recommendations' button visible.");
+}
+
+// IMPORTANT: Make the function globally accessible
+window.initializeAppContent = initializeAppContent;
         // Basic console log to confirm script is loading
         console.log("Beth's Book Club script is loading...");
 
