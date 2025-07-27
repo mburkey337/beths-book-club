@@ -505,7 +505,7 @@
             }
 
             showView(viewId) {
-                const views = ['recommendations-view', 'bookshelf-view', 'beth-deleted-books-view', 'flagged-books-view', 'admin-approved-books-view'];
+                const views = ['recommendations-view', 'bookshelf-view', 'beth-deleted-books-view', 'flagged-books-view', 'admin-approved-books-view', 'saved-books-view'];
                 
                 views.forEach(id => {
                     const element = utils.safeGetElement(id);
@@ -542,6 +542,9 @@
                             break;
                         case 'admin-approved-books-view':
                             this.displayAdminApprovedBooks();
+                            break;
+                        case 'saved-books-view':
+                            this.displaySavedBooks();
                             break;
                     }
                 } catch (error) {
@@ -674,6 +677,31 @@
                 });
             }
 
+            displaySavedBooks() {
+                const container = utils.safeGetElement('saved-books-list');
+                const noBooks = utils.safeGetElement('no-saved-books-message');
+                
+                if (!container || !noBooks) return;
+
+                container.innerHTML = '';
+
+                // Filter admin approved books that were saved by user (not by admin)
+                const userSavedBooks = appState.data.adminApprovedBooks.filter(book => book.savedByUser === true);
+
+                if (userSavedBooks.length === 0) {
+                    noBooks.classList.remove('hidden');
+                    noBooks.textContent = "No books saved for later yet.";
+                    return;
+                }
+
+                noBooks.classList.add('hidden');
+
+                userSavedBooks.forEach((book, index) => {
+                    const bookCard = this.createBookCard(book, 'saved', index);
+                    container.appendChild(bookCard);
+                });
+            }
+
             displayAdminPendingRecommendations() {
                 const container = utils.safeGetElement('admin-pending-recs-container');
                 const list = utils.safeGetElement('admin-pending-recs-list');
@@ -730,7 +758,7 @@
 
             createBookCard(book, type, index = 0) {
                 const card = document.createElement('div');
-                const isSmall = ['bookshelf', 'deleted', 'flagged'].includes(type);
+                const isSmall = ['bookshelf', 'deleted', 'flagged', 'saved'].includes(type);
                 card.className = `book-card ${isSmall ? 'bookshelf-card-small' : ''} bg-white rounded-lg shadow-md overflow-hidden flex flex-col`;
                 card.style.animationDelay = `${index * (isSmall ? 0.05 : 0.1)}s`;
 
@@ -748,7 +776,8 @@
                         userActionsHtml = `
                             <button class="action-button w-full mb-4 pick-book-btn" data-workkey="${utils.escapeHtml(book.workKey)}">Click to Pick!</button>
                             <button class="action-button insight-btn w-full mb-4 get-insight-btn" data-book-json="${utils.escapeHtml(JSON.stringify(book))}">✨ Why for Me?</button>
-                            <button class="action-button pass-btn w-full pass-book-btn" data-workkey="${utils.escapeHtml(book.workKey)}">Pass</button>
+                            <button class="action-button pass-btn w-full mb-2 pass-book-btn" data-workkey="${utils.escapeHtml(book.workKey)}">Pass</button>
+                            <button class="action-button save-later-btn w-full save-for-later-btn" data-workkey="${utils.escapeHtml(book.workKey)}">Save for Later</button>
                         `;
                         if (isAdminMode) {
                             adminActionsHtml = `
@@ -760,6 +789,9 @@
 
                     case 'bookshelf':
                         statusHtml = this.getBookshelfStatus(book);
+                        userActionsHtml = `
+                            <button class="action-button save-later-btn w-full mt-4 view-saved-books-btn">View Saved Books</button>
+                        `;
                         break;
 
                     case 'deleted':
@@ -774,6 +806,12 @@
                         }
                         userActionsHtml = `
                             <button class="action-button w-full mt-4 restore-flagged-btn" data-workkey="${utils.escapeHtml(book.workKey)}">Restore to Recommendations</button>
+                        `;
+                        break;
+
+                    case 'saved':
+                        userActionsHtml = `
+                            <button class="action-button w-full mt-4 move-to-recs-btn" data-workkey="${utils.escapeHtml(book.workKey)}">Move to Recommendations</button>
                         `;
                         break;
                 }
@@ -871,6 +909,11 @@
                     <a href="${utils.escapeJs(book.goodreadsUrl)}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline text-sm mt-2 block">View on Open Library</a>
                 ` : '';
                 const yearHtml = book.first_publish_year ? `<p class="text-gray-600 text-xs mt-1">Published: ${utils.escapeHtml(book.first_publish_year)}</p>` : '';
+                
+                // Add designator for admin to see how book was added
+                const sourceDesignator = book.savedByUser ? 
+                    `<span class="inline-block bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full">Saved by User</span>` :
+                    `<span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">Admin Approved</span>`;
 
                 let buttonsHtml = '';
                 if (type === 'pending') {
@@ -888,8 +931,9 @@
 
                 item.innerHTML = `
                     <div class="book-info">
-                        "${utils.escapeHtml(book.title)}" by ${utils.escapeHtml(book.author)} (Score: ${book.score}/100)
+                        "${utils.escapeHtml(book.title)}" by ${utils.escapeHtml(book.author)} (Score: ${book.score || 'N/A'}/100)
                         ${yearHtml}
+                        <div class="mt-2">${sourceDesignator}</div>
                     </div>
                     ${descriptionHtml}
                     ${prosHtml}
@@ -909,6 +953,10 @@
                     const element = utils.safeGetElement(id);
                     if (element) element.classList.toggle('hidden', !showAdmin);
                 });
+
+                // Always show deleted books tab to both user and admin
+                const deletedBooksTab = utils.safeGetElement('nav-beth-deleted-books');
+                if (deletedBooksTab) deletedBooksTab.classList.remove('hidden');
 
                 // Clear admin inputs
                 ['search-input', 'manual-add-url-input', 'evaluate-book-url-input'].forEach(id => {
@@ -962,6 +1010,7 @@
                     this.displayAdminAlerts();
                     this.displayAdminPendingRecommendations();
                     this.displayAdminApprovedBooks();
+                    this.displaySavedBooks();
                 } catch (error) {
                     console.error('Error refreshing displays:', error);
                 }
@@ -1659,6 +1708,12 @@
                 this.setupStaticEvents();
             }
 
+            getSavedBooksHandlers() {
+                return {
+                    'move-to-recs-btn': (e) => this.handleMoveSavedToRecommendations(e.target.dataset.workkey)
+                };
+            }
+
             setupEventDelegation() {
                 const containers = [
                     { id: 'book-list', handlers: this.getRecommendedBookHandlers() },
@@ -1668,7 +1723,8 @@
                     { id: 'search-results', handlers: this.getSearchResultHandlers() },
                     { id: 'admin-alerts-list', handlers: this.getAlertHandlers() },
                     { id: 'admin-pending-recs-list', handlers: this.getPendingHandlers() },
-                    { id: 'admin-approved-books-list', handlers: this.getApprovedHandlers() }
+                    { id: 'admin-approved-books-list', handlers: this.getApprovedHandlers() },
+                    { id: 'saved-books-list', handlers: this.getSavedBooksHandlers() }
                 ];
 
                 containers.forEach(({ id, handlers }) => {
@@ -1692,6 +1748,7 @@
                     'pick-book-btn': (e) => this.handlePickBook(e.target.dataset.workkey),
                     'get-insight-btn': (e) => this.handleGetInsight(e),
                     'pass-book-btn': (e) => this.handlePassBook(e.target.dataset.workkey),
+                    'save-for-later-btn': (e) => this.handleSaveForLater(e.target.dataset.workkey),
                     'remove-admin-button': (e) => this.handleRemoveFromRecommended(e.target.dataset.workkey),
                     'red-flag-btn': (e) => this.handleRedFlag(e.target.dataset.workkey, e.target.dataset.author)
                 };
@@ -1700,11 +1757,22 @@
             getBookshelfHandlers() {
                 return {
                     'update-rating-btn': (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         const workKey = e.target.closest('.review-buttons').dataset.bookWorkkey;
                         const rating = e.target.dataset.rating;
                         this.handleUpdateRating(workKey, rating);
                     },
-                    'remove-from-bookshelf-btn': (e) => this.handleRemoveFromBookshelf(e.target.dataset.workkey)
+                    'remove-from-bookshelf-btn': (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.handleRemoveFromBookshelf(e.target.dataset.workkey);
+                    },
+                    'view-saved-books-btn': (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        ui.showView('saved-books-view');
+                    }
                 };
             }
 
@@ -1777,12 +1845,6 @@
                 const closeButton = utils.safeGetElement('message-box-close');
                 if (closeButton) {
                     closeButton.addEventListener('click', () => ui.hideMessage());
-                }
-
-                // Splash screen continue
-                const continueButton = utils.safeGetElement('splash-continue-button');
-                if (continueButton) {
-                    continueButton.addEventListener('click', () => this.handleSplashContinue());
                 }
             }
 
@@ -1872,12 +1934,10 @@
                 appState.reset();
                 
                 const mainContent = utils.safeGetElement('main-content');
-                const splashScreen = utils.safeGetElement('splash-screen');
                 const loginScreen = utils.safeGetElement('login-screen');
                 const pinInput = utils.safeGetElement('pin-input');
 
                 if (mainContent) mainContent.classList.add('hidden');
-                if (splashScreen) splashScreen.classList.add('hidden');
                 if (loginScreen) loginScreen.classList.remove('hidden');
                 if (pinInput) pinInput.value = '';
 
@@ -1891,18 +1951,6 @@
                     false,
                     true
                 );
-            }
-
-            handleSplashContinue() {
-                const splashScreen = utils.safeGetElement('splash-screen');
-                const mainContent = utils.safeGetElement('main-content');
-
-                if (splashScreen) splashScreen.classList.add('hidden');
-                if (mainContent) mainContent.classList.remove('hidden');
-
-                appState.uiReadyForDisplay = true;
-                ui.refreshAllDisplays();
-                ui.showView('recommendations-view');
             }
 
             async initializeApp(isAdminLogin) {
@@ -1919,12 +1967,17 @@
                         await firebase.seedInitialBookshelf();
                     }
 
-                    // Show splash screen
+                    // Hide login screen and show main content directly
                     const loginScreen = utils.safeGetElement('login-screen');
-                    const splashScreen = utils.safeGetElement('splash-screen');
+                    const mainContent = utils.safeGetElement('main-content');
                     
                     if (loginScreen) loginScreen.classList.add('hidden');
-                    if (splashScreen) splashScreen.classList.remove('hidden');
+                    if (mainContent) mainContent.classList.remove('hidden');
+
+                    // Set UI ready and refresh displays
+                    appState.uiReadyForDisplay = true;
+                    ui.refreshAllDisplays();
+                    ui.showView('recommendations-view');
 
                     ui.setAdminUIVisibility(isAdminLogin);
 
@@ -2036,13 +2089,29 @@
                 ui.showMessage(`"${book.title}" rated as "${rating}"!`, false, false);
             }
 
+            async handleSaveForLater(workKey) {
+                const book = appState.data.recommendedBooks.find(b => b.workKey === workKey);
+                if (!book) return;
+
+                ui.showMessage(`Saving "${book.title}" for later...`, false, false);
+
+                // Add savedByUser flag and move to admin approved books
+                book.savedByUser = true;
+                book.userRating = null; // Reset user rating
+                
+                await storage.saveToFirestore(book, 'admin_approved_books', appState.adminUserId);
+                await storage.deleteFromFirestore(workKey, 'recommended_books');
+                
+                ui.showMessage(`"${book.title}" has been saved for later! You can view it in your bookshelf.`, false, false);
+            }
+
             async handleRemoveFromBookshelf(workKey) {
                 const book = appState.data.bookShelfBooks.find(b => b.workKey === workKey);
                 if (!book) return;
 
                 await storage.deleteFromFirestore(workKey, 'bookshelf_books');
                 await storage.saveToFirestore(book, 'beth_deleted_books');
-                ui.showMessage(`"${book.title}" has been removed from your bookshelf.`, false, false);
+                ui.showMessage(`"${book.title}" has been removed from your bookshelf and moved to deleted books.`, false, false);
             }
 
             async handleRestoreFromDeleted(workKey) {
@@ -2634,6 +2703,12 @@
         .action-button.red-flag-btn:hover {
             background-color: #b91c1c; /* Red 700 */
         }
+        .action-button.save-later-btn { /* New style for save for later button */
+            background-color: #8b5cf6; /* Violet 500 */
+        }
+        .action-button.save-later-btn:hover {
+            background-color: #7c3aed; /* Violet 600 */
+        }
         .nav-button {
             background-color: transparent;
             color: white;
@@ -2903,17 +2978,6 @@
         </div>
     </div>
 
-    <!-- Splash Screen (Hidden by default, shown after successful login) -->
-    <div id="splash-screen" class="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-emerald-500 to-emerald-700 text-white p-4 hidden">
-        <h2 class="text-5xl font-extrabold mb-6 text-center animate-pulse">Welcome, Beth!</h2>
-        <p class="text-xl text-center mb-8 max-w-lg">
-            Your personalized book recommendations are ready. Let's find your next favorite read!
-        </p>
-        <button id="splash-continue-button" class="action-button px-8 py-4 text-lg bg-white text-emerald-700 hover:bg-gray-100 transition-colors duration-300">
-            Start Reading
-        </button>
-    </div>
-
     <!-- Main Content Area (Now always in DOM, its children are hidden) -->
     <div id="main-content" class="min-h-screen flex flex-col hidden">
         <!-- Header Section -->
@@ -2929,8 +2993,8 @@
             <nav class="max-w-7xl mx-auto mt-4 flex justify-center space-x-4">
                 <button id="nav-recommendations" class="nav-button active">Recommended Reads</button>
                 <button id="nav-bookshelf" class="nav-button">My Bookshelf</button>
-                <!-- New tab for Beth's deleted books -->
-                <button id="nav-beth-deleted-books" class="nav-button hidden">Deleted Books</button>
+                <!-- Deleted books tab - visible to both user and admin -->
+                <button id="nav-beth-deleted-books" class="nav-button">Deleted Books</button>
                 <!-- Admin-only tabs, initially hidden and controlled by PIN login -->
                 <button id="nav-flagged-books" class="nav-button hidden">Flagged Books</button>
                 <button id="nav-admin-approved-books" class="nav-button hidden">Admin Approved</button>
@@ -3045,6 +3109,17 @@
                     <!-- Admin approved books will be dynamically inserted here -->
                 </div>
                 <p id="no-admin-approved-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
+            </div>
+        </section>
+
+        <!-- Saved Books Section (User's saved for later books) -->
+        <section id="saved-books-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
+            <div class="max-w-7xl mx-auto">
+                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Books Saved for Later</h2>
+                <div id="saved-books-list" class="flex flex-wrap justify-center gap-4">
+                    <!-- User's saved books will be dynamically inserted here -->
+                </div>
+                <p id="no-saved-books-message" class="text-center text-gray-600 mt-4 hidden"></p>
             </div>
         </section>
 
