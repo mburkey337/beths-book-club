@@ -30,7 +30,6 @@
             RECOMMENDATION_CONFIG: {
                 TARGET_BOOKS: 6,
                 MIN_SCORE_THRESHOLD: 65,
-                AUTO_APPROVE_SCORE_THRESHOLD: 80,
                 MAX_API_CALLS: 40,
                 API_DELAY_MS: 50
             }
@@ -782,6 +781,7 @@
                         if (isAdminMode) {
                             adminActionsHtml = `
                                 <button class="remove-admin-button" data-workkey="${utils.escapeHtml(book.workKey)}">Remove from Club</button>
+                                <button class="action-button w-full mt-2 move-to-approved-btn" data-workkey="${utils.escapeHtml(book.workKey)}" style="background-color: #3b82f6;">Move to Admin Approved</button>
                                 <button class="action-button red-flag-btn w-full mt-2" data-workkey="${utils.escapeHtml(book.workKey)}" data-author="${utils.escapeHtml(book.author)}">🚩 Red Flag</button>
                             `;
                         }
@@ -1751,6 +1751,7 @@
                     'pass-book-btn': (e) => this.handlePassBook(e.target.dataset.workkey),
                     'save-for-later-btn': (e) => this.handleSaveForLater(e.target.dataset.workkey),
                     'remove-admin-button': (e) => this.handleRemoveFromRecommended(e.target.dataset.workkey),
+                    'move-to-approved-btn': (e) => this.handleMoveToApproved(e.target.dataset.workkey),
                     'red-flag-btn': (e) => this.handleRedFlag(e.target.dataset.workkey, e.target.dataset.author)
                 };
             }
@@ -1786,7 +1787,10 @@
 
             getSearchResultHandlers() {
                 return {
-                    'add-to-curated-list-btn': (e) => this.handleAddToCuratedList(e)
+                    'add-to-curated-list-btn': (e) => {
+                        console.log('Add to curated list button clicked', e.target);
+                        this.handleAddToCuratedList(e);
+                    }
                 };
             }
 
@@ -2105,6 +2109,35 @@
                 await storage.deleteFromFirestore(workKey, 'recommended_books');
                 
                 ui.showMessage(`"${book.title}" has been saved for later! You can view it in your bookshelf.`, false, false);
+            }
+
+            async handleMoveToApproved(workKey) {
+                const book = appState.data.recommendedBooks.find(b => b.workKey === workKey);
+                if (!book) return;
+
+                // Create a clean copy for admin approved books
+                const approvedBook = {
+                    title: book.title || 'Unknown Title',
+                    author: book.author || 'Unknown Author',
+                    description: book.description || '',
+                    imageUrl: book.imageUrl || '',
+                    goodreadsUrl: book.goodreadsUrl || '',
+                    rating: book.rating && typeof book.rating === 'number' ? book.rating : null,
+                    subjects: book.subjects || [],
+                    userRating: book.userRating,
+                    workKey: book.workKey,
+                    first_publish_year: book.first_publish_year && typeof book.first_publish_year === 'number' ? book.first_publish_year : null,
+                    source: book.source || 'Moved by Admin',
+                    savedByUser: false, // Mark as admin approved, not user saved
+                    score: book.score || null,
+                    pros: book.pros || [],
+                    cons: book.cons || [],
+                    summary: book.summary || ''
+                };
+
+                await storage.saveToFirestore(approvedBook, 'admin_approved_books', appState.adminUserId);
+                await storage.deleteFromFirestore(workKey, 'recommended_books');
+                ui.showMessage(`"${book.title}" has been moved to Admin Approved Books.`, false, false);
             }
 
             async handleRemoveFromBookshelf(workKey) {
