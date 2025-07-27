@@ -181,8 +181,11 @@
                 }
 
                 try {
+                    // Clean the item to remove undefined values before saving to Firestore
+                    const cleanedItem = this.cleanObjectForFirestore(item);
+                    
                     const docRef = doc(appState.db, this.getCollectionPath(collectionName, userId), item.workKey);
-                    await setDoc(docRef, item);
+                    await setDoc(docRef, cleanedItem);
                     console.log(`Firestore: Saved "${item.title}" to ${collectionName}`);
                     return true;
                 } catch (error) {
@@ -193,6 +196,22 @@
                     }
                     return this.saveToLocalStorage(item, collectionName);
                 }
+            }
+
+            cleanObjectForFirestore(obj) {
+                const cleaned = {};
+                for (const [key, value] of Object.entries(obj)) {
+                    if (value !== undefined) {
+                        if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+                            cleaned[key] = value;
+                        } else {
+                            // Recursively clean nested objects
+                            cleaned[key] = this.cleanObjectForFirestore(value);
+                        }
+                    }
+                    // Skip undefined values entirely
+                }
+                return cleaned;
             }
 
             async deleteFromFirestore(workKey, collectionName, userId = null) {
@@ -356,7 +375,7 @@
                         return null;
                     }
 
-                    const firstPublishYear = data.first_publish_year;
+                    const firstPublishYear = data.first_publish_year && typeof data.first_publish_year === 'number' ? data.first_publish_year : null;
                     if (firstPublishYear && firstPublishYear < CONFIG.MIN_PUBLISH_YEAR) {
                         console.log(`Skipping "${data.title}" - too old (${firstPublishYear})`);
                         return null;
@@ -385,10 +404,10 @@
                     const result = {
                         title: data.title || 'Unknown Title',
                         author: authorName,
-                        description,
+                        description: description || '',
                         imageUrl: `${CONFIG.OPEN_LIBRARY_COVER_URL}${data.covers[0]}-M.jpg`,
                         goodreadsUrl: `https://openlibrary.org${data.key}`,
-                        rating: data.ratings_average || null,
+                        rating: data.ratings_average && typeof data.ratings_average === 'number' ? data.ratings_average : null,
                         subjects: data.subjects || [],
                         source: 'Open Library Work Details',
                         first_publish_year: firstPublishYear,
@@ -1365,23 +1384,24 @@
                 return data.docs
                     .filter(doc => {
                         const workKeyMatch = doc.key?.match(/\/works\/(OL\d+W)/);
-                        const firstPublishYear = doc.first_publish_year;
+                        const firstPublishYear = doc.first_publish_year && typeof doc.first_publish_year === 'number' ? doc.first_publish_year : null;
                         return doc.key && (doc.author_name || doc.author) && doc.cover_i && 
-                               workKeyMatch && firstPublishYear >= CONFIG.MIN_PUBLISH_YEAR;
+                               workKeyMatch && (!firstPublishYear || firstPublishYear >= CONFIG.MIN_PUBLISH_YEAR);
                     })
                     .map(doc => {
                         const workKeyMatch = doc.key.match(/\/works\/(OL\d+W)/);
+                        const firstPublishYear = doc.first_publish_year && typeof doc.first_publish_year === 'number' ? doc.first_publish_year : null;
                         return {
                             title: doc.title || 'Unknown Title',
                             author: doc.author_name ? doc.author_name.join(', ') : (doc.author || 'Unknown Author'),
                             description: doc.first_sentence?.[0] || '',
                             imageUrl: `${CONFIG.OPEN_LIBRARY_COVER_URL}${doc.cover_i}-M.jpg`,
                             goodreadsUrl: `https://openlibrary.org${doc.key}`,
-                            rating: doc.ratings_average || null,
+                            rating: doc.ratings_average && typeof doc.ratings_average === 'number' ? doc.ratings_average : null,
                             subjects: doc.subject || [],
                             workKey: workKeyMatch[1],
                             source,
-                            first_publish_year: doc.first_publish_year
+                            first_publish_year: firstPublishYear
                         };
                     });
             }
@@ -1605,9 +1625,17 @@
                             const bookDetails = await api.fetchBookDetails(workKey);
                             if (bookDetails) {
                                 const bookToSave = {
-                                    ...bookDetails,
+                                    title: bookDetails.title || 'Unknown Title',
+                                    author: bookDetails.author || 'Unknown Author',
+                                    description: bookDetails.description || '',
+                                    imageUrl: bookDetails.imageUrl || '',
+                                    goodreadsUrl: bookDetails.goodreadsUrl || '',
+                                    rating: bookDetails.rating && typeof bookDetails.rating === 'number' ? bookDetails.rating : null,
+                                    subjects: bookDetails.subjects || [],
                                     userRating: bookInfo.userRating,
-                                    source: 'Initial Seeding'
+                                    source: 'Initial Seeding',
+                                    workKey: bookDetails.workKey,
+                                    first_publish_year: bookDetails.first_publish_year && typeof bookDetails.first_publish_year === 'number' ? bookDetails.first_publish_year : null
                                 };
                                 await storage.saveToFirestore(bookToSave, 'bookshelf_books');
                                 console.log(`Seeded: ${bookToSave.title}`);
@@ -2045,16 +2073,16 @@
                 try {
                     const book = JSON.parse(button.dataset.bookJson);
                     const newBook = {
-                        title: book.title,
-                        author: book.author,
-                        description: book.description,
-                        imageUrl: book.imageUrl,
-                        goodreadsUrl: book.goodreadsUrl,
-                        rating: book.rating,
-                        subjects: book.subjects,
+                        title: book.title || 'Unknown Title',
+                        author: book.author || 'Unknown Author',
+                        description: book.description || '',
+                        imageUrl: book.imageUrl || '',
+                        goodreadsUrl: book.goodreadsUrl || '',
+                        rating: book.rating && typeof book.rating === 'number' ? book.rating : null,
+                        subjects: book.subjects || [],
                         userRating: null,
                         workKey: book.workKey,
-                        first_publish_year: book.first_publish_year
+                        first_publish_year: book.first_publish_year && typeof book.first_publish_year === 'number' ? book.first_publish_year : null
                     };
 
                     const isDuplicate = appState.data.recommendedBooks.some(b => b.workKey === newBook.workKey);
@@ -2224,9 +2252,17 @@
                     }
 
                     const newBook = {
-                        ...bookDetails,
+                        title: bookDetails.title || 'Unknown Title',
+                        author: bookDetails.author || 'Unknown Author', 
+                        description: bookDetails.description || '',
+                        imageUrl: bookDetails.imageUrl || '',
+                        goodreadsUrl: bookDetails.goodreadsUrl || '',
+                        rating: bookDetails.rating && typeof bookDetails.rating === 'number' ? bookDetails.rating : null,
+                        subjects: bookDetails.subjects || [],
                         userRating: null,
-                        source: 'Manually Added (Admin)'
+                        source: 'Manually Added (Admin)',
+                        workKey: bookDetails.workKey,
+                        first_publish_year: bookDetails.first_publish_year && typeof bookDetails.first_publish_year === 'number' ? bookDetails.first_publish_year : null
                     };
 
                     const isDuplicate = appState.data.recommendedBooks.some(b => b.workKey === newBook.workKey);
@@ -2297,7 +2333,19 @@
                     const addButton = document.getElementById('add-evaluated-book-button');
                     if (addButton) {
                         addButton.addEventListener('click', async () => {
-                            const newBook = { ...bookDetails, userRating: null };
+                            const newBook = { 
+                                title: bookDetails.title || 'Unknown Title',
+                                author: bookDetails.author || 'Unknown Author',
+                                description: bookDetails.description || '',
+                                imageUrl: bookDetails.imageUrl || '',
+                                goodreadsUrl: bookDetails.goodreadsUrl || '',
+                                rating: bookDetails.rating && typeof bookDetails.rating === 'number' ? bookDetails.rating : null,
+                                subjects: bookDetails.subjects || [],
+                                userRating: null,
+                                source: bookDetails.source || 'Evaluated Book',
+                                workKey: bookDetails.workKey,
+                                first_publish_year: bookDetails.first_publish_year && typeof bookDetails.first_publish_year === 'number' ? bookDetails.first_publish_year : null
+                            };
                             const isDuplicate = appState.data.recommendedBooks.some(b => b.workKey === newBook.workKey);
                             
                             if (!isDuplicate) {
