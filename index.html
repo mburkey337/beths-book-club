@@ -789,9 +789,6 @@
 
                     case 'bookshelf':
                         statusHtml = this.getBookshelfStatus(book);
-                        userActionsHtml = `
-                            <button class="action-button save-later-btn w-full mt-4 view-saved-books-btn">View Saved Books</button>
-                        `;
                         break;
 
                     case 'deleted':
@@ -811,7 +808,7 @@
 
                     case 'saved':
                         userActionsHtml = `
-                            <button class="action-button w-full mt-4 move-to-recs-btn" data-workkey="${utils.escapeHtml(book.workKey)}">Move to Recommendations</button>
+                            <button class="action-button w-full mt-4 pick-and-move-btn" data-workkey="${utils.escapeHtml(book.workKey)}">Pick and Move to Bookshelf</button>
                         `;
                         break;
                 }
@@ -1710,7 +1707,7 @@
 
             getSavedBooksHandlers() {
                 return {
-                    'move-to-recs-btn': (e) => this.handleMoveSavedToRecommendations(e.target.dataset.workkey)
+                    'pick-and-move-btn': (e) => this.handlePickAndMoveToBookshelf(e.target.dataset.workkey)
                 };
             }
 
@@ -1734,11 +1731,15 @@
                             const target = event.target;
                             for (const [className, handler] of Object.entries(handlers)) {
                                 if (target.classList.contains(className)) {
+                                    console.log(`Event handler triggered: ${className} on container ${id}`);
                                     handler(event);
                                     break;
                                 }
                             }
                         });
+                        console.log(`Event delegation setup for ${id} with handlers:`, Object.keys(handlers));
+                    } else {
+                        console.warn(`Container not found: ${id}`);
                     }
                 });
             }
@@ -1767,11 +1768,6 @@
                         e.preventDefault();
                         e.stopPropagation();
                         this.handleRemoveFromBookshelf(e.target.dataset.workkey);
-                    },
-                    'view-saved-books-btn': (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        ui.showView('saved-books-view');
                     }
                 };
             }
@@ -1831,6 +1827,12 @@
                         button.addEventListener('click', () => ui.showView(view));
                     }
                 });
+
+                // View Saved Books Button (centralized)
+                const viewSavedBooksButton = utils.safeGetElement('view-saved-books-button');
+                if (viewSavedBooksButton) {
+                    viewSavedBooksButton.addEventListener('click', () => ui.showView('saved-books-view'));
+                }
 
                 // Admin controls
                 this.setupAdminControls();
@@ -3070,7 +3072,11 @@
         <!-- Beth's Bookshelf Section -->
         <section id="bookshelf-view" class="flex-grow py-12 px-4 sm:px-6 lg:px-8 hidden">
             <div class="max-w-7xl mx-auto">
-                <h2 class="text-3xl font-bold text-center mb-10 text-gray-800">Beth's Bookshelf</h2>
+                <h2 class="text-3xl font-bold text-center mb-6 text-gray-800">Beth's Bookshelf</h2>
+                <!-- Centralized View Saved Books Button -->
+                <div class="text-center mb-8">
+                    <button id="view-saved-books-button" class="action-button save-later-btn px-8 py-3 text-lg">View Saved Books</button>
+                </div>
                 <!-- Adjusted grid for smaller cards on bookshelf -->
                 <div id="bookshelf-list" class="flex flex-wrap justify-center gap-4">
                     <!-- Books from the bookshelf will be dynamically inserted here -->
