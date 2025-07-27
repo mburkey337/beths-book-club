@@ -447,7 +447,7 @@
                     const result = await response.json();
 
                     if (!response.ok) {
-                        throw new Error(`API error: ${response.status}`);
+                        throw new Error(`API error: ${response.status} - ${result.error?.message || 'Unknown error'}`);
                     }
 
                     const content = result.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -455,7 +455,17 @@
                         throw new Error('No content in API response');
                     }
 
-                    return schema ? JSON.parse(content) : content;
+                    if (schema) {
+                        try {
+                            const parsed = JSON.parse(content);
+                            return parsed;
+                        } catch (parseError) {
+                            console.error('Failed to parse JSON response:', content);
+                            throw new Error('Invalid JSON in API response');
+                        }
+                    }
+
+                    return content;
                 } catch (error) {
                     console.error('Gemini API error:', error);
                     throw error;
@@ -464,7 +474,20 @@
 
             async searchOpenLibrary(query, limit = 30) {
                 try {
-                    const response = await this.fetchWithRetry(`${CONFIG.OPEN_LIBRARY_SEARCH_URL}${encodeURIComponent(query)}&limit=${limit}`);
+                    // Validate and clean the query
+                    if (!query || typeof query !== 'string') {
+                        throw new Error('Invalid search query');
+                    }
+
+                    // Limit query length to prevent URL issues
+                    const cleanQuery = query.trim().substring(0, 200);
+                    
+                    if (cleanQuery.length < 2) {
+                        throw new Error('Search query too short');
+                    }
+
+                    console.log(`Searching Open Library for: "${cleanQuery}"`);
+                    const response = await this.fetchWithRetry(`${CONFIG.OPEN_LIBRARY_SEARCH_URL}${encodeURIComponent(cleanQuery)}&limit=${limit}`);
                     return await response.json();
                 } catch (error) {
                     console.error('Open Library search error:', error);
@@ -1172,6 +1195,13 @@
                     await this.sendAlert('recommendations_generation_started');
 
                     const candidates = await this.collectCandidates();
+                    
+                    if (candidates.length === 0) {
+                        if (loader) loader.style.display = 'none';
+                        ui.showMessage('No candidates found. This might be due to API issues or insufficient data. Try again later.', false, false);
+                        return;
+                    }
+
                     const recommendations = await this.processRecommendations(candidates);
 
                     if (loader) loader.style.display = 'none';
@@ -1204,7 +1234,7 @@
                 } catch (error) {
                     console.error('Recommendation generation failed:', error);
                     if (loader) loader.style.display = 'none';
-                    ui.showMessage('Failed to generate recommendations. Please try again later.', false, false);
+                    ui.showMessage('Failed to generate recommendations due to API issues. Please try again later.', false, false);
                 }
             }
 
@@ -1219,7 +1249,7 @@
                 const results = await Promise.allSettled(sources.map(fn => fn()));
                 
                 const candidates = results.reduce((acc, result, index) => {
-                    if (result.status === 'fulfilled') {
+                    if (result.status === 'fulfilled' && Array.isArray(result.value)) {
                         acc = acc.concat(result.value);
                         console.log(`Source ${index} found: ${result.value.length} candidates`);
                     } else {
@@ -1228,17 +1258,20 @@
                     return acc;
                 }, []);
 
-                // Deduplicate
+                // Deduplicate and filter out invalid candidates
                 const uniqueCandidates = [];
                 const seen = new Set();
                 for (const candidate of candidates) {
-                    if (candidate?.workKey && !seen.has(candidate.workKey)) {
+                    if (candidate?.workKey && 
+                        candidate?.title && 
+                        candidate?.author && 
+                        !seen.has(candidate.workKey)) {
                         uniqueCandidates.push(candidate);
                         seen.add(candidate.workKey);
                     }
                 }
 
-                console.log(`Collected ${uniqueCandidates.length} unique candidates`);
+                console.log(`Collected ${uniqueCandidates.length} unique valid candidates`);
                 return uniqueCandidates;
             }
 
@@ -1362,7 +1395,10 @@
                 - Self-help, memoirs
                 - Historical fiction before 1900
 
-                Provide recommendations as JSON array with "title" and "author" properties.`;
+                IMPORTANT: Respond with ONLY a valid JSON array. Each book must have exactly two properties: "title" and "author". Do not include any explanations, commentary, or additional text outside the JSON.
+
+                Example format:
+                [{"title": "Gone Girl", "author": "Gillian Flynn"}, {"title": "The Girl with the Dragon Tattoo", "author": "Stieg Larsson"}]`;
 
                 const schema = {
                     type: "ARRAY",
@@ -1371,23 +1407,54 @@
                         properties: {
                             "title": { "type": "STRING" },
                             "author": { "type": "STRING" }
-                        }
+                        },
+                        required: ["title", "author"]
                     }
                 };
 
                 try {
                     const recommendations = await api.callGeminiAPI(prompt, schema);
+                    
+                    // Validate that we got an array
+                    if (!Array.isArray(recommendations)) {
+                        console.warn('AI did not return an array, falling back to empty recommendations');
+                        return [];
+                    }
+
                     const candidates = [];
 
                     for (const rec of recommendations) {
+                        // Validate each recommendation has the required properties
+                        if (!rec.title || !rec.author || typeof rec.title !== 'string' || typeof rec.author !== 'string') {
+                            console.warn('Invalid recommendation format:', rec);
+                            continue;
+                        }
+
                         try {
-                            const searchData = await api.searchOpenLibrary(`${rec.title} ${rec.author}`, 1);
-                            candidates.push(...this.processSearchResults(searchData, 'AI Recommendation'));
+                            // Clean and limit the search query length
+                            const cleanTitle = rec.title.trim().substring(0, 100);
+                            const cleanAuthor = rec.author.trim().substring(0, 50);
+                            const searchQuery = `${cleanTitle} ${cleanAuthor}`.trim();
+                            
+                            // Skip if the search query is too short or invalid
+                            if (searchQuery.length < 3) {
+                                console.warn('Search query too short:', searchQuery);
+                                continue;
+                            }
+
+                            console.log(`AI searching for: "${searchQuery}"`);
+                            const searchData = await api.searchOpenLibrary(searchQuery, 1);
+                            const processed = this.processSearchResults(searchData, 'AI Recommendation');
+                            candidates.push(...processed);
+                            
+                            // Add a small delay between searches to be respectful
+                            await utils.delay(200);
                         } catch (error) {
-                            console.warn(`AI search failed for "${rec.title}":`, error);
+                            console.warn(`AI search failed for "${rec.title}" by ${rec.author}:`, error);
                         }
                     }
 
+                    console.log(`AI recommendations found ${candidates.length} candidates`);
                     return candidates;
                 } catch (error) {
                     console.error('AI recommendations failed:', error);
