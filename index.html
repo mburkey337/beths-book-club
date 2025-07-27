@@ -1816,7 +1816,7 @@
             getApprovedHandlers() {
                 return {
                     'move-to-beths-recs-btn': (e) => this.handleMoveToRecommendations(e),
-                    'remove-from-approved-btn': (e) => this.handleRemoveFromApproved(e.target.dataset.workkey)
+                    'remove-from-approved-btn': (e) => this.(e.target.dataset.workkey)
                 };
             }
 
@@ -2271,7 +2271,7 @@
                 }
             }
 
-            async handleRemoveFromApproved(workKey) {
+async handleRemoveFromApproved(workKey) {
                 const book = appState.data.adminApprovedBooks.find(b => b.workKey === workKey);
                 if (!book) return;
 
@@ -2279,6 +2279,21 @@
                 ui.showMessage(`"${book.title}" has been removed from approved books.`, false, false);
             }
 
+            async handlePickAndMoveToBookshelf(workKey) {
+                const book = appState.data.adminApprovedBooks.find(b => b.workKey === workKey && b.savedByUser === true);
+                if (!book) return;
+
+                // Remove from admin approved books
+                await storage.deleteFromFirestore(workKey, 'admin_approved_books', appState.adminUserId);
+                
+                // Add to bookshelf with 'picked' status
+                book.userRating = 'picked';
+                book.savedByUser = undefined; // Remove this flag since it's now on bookshelf
+                await storage.saveToFirestore(book, 'bookshelf_books');
+                
+                ui.showMessage(`"${book.title}" has been picked and moved to your bookshelf!`, false, false);
+            }
+            
             async handleSearch() {
                 const queryInput = utils.safeGetElement('search-input');
                 const query = queryInput?.value?.trim();
