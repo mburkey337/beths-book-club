@@ -963,6 +963,11 @@
 
                 const searchResults = utils.safeGetElement('search-results');
                 if (searchResults) searchResults.innerHTML = '';
+
+                // Refresh displays to show/hide admin buttons
+                if (appState.uiReadyForDisplay) {
+                    this.refreshAllDisplays();
+                }
             }
 
             displaySearchResults(results) {
