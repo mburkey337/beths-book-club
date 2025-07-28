@@ -30,7 +30,6 @@
             RECOMMENDATION_CONFIG: {
                 TARGET_BOOKS: 6,
                 MIN_SCORE_THRESHOLD: 65,
-                AUTO_APPROVE_SCORE_THRESHOLD: 85,
                 MAX_API_CALLS: 40,
                 API_DELAY_MS: 50
             }
@@ -822,7 +821,7 @@
                 if (appState.data.adminPendingRecommendations.length === 0) {
                     container.classList.add('hidden');
                     noRecs.classList.remove('hidden');
-                    noRecs.textContent = "No pending recommendations for approval.";
+                    noRecs.textContent = "No recommendations awaiting approval.";
                     return;
                 }
 
@@ -1298,33 +1297,21 @@
                     if (loader) loader.style.display = 'none';
 
                     if (recommendations.length > 0) {
-                        let autoApprovedCount = 0;
                         let pendingApprovalCount = 0;
 
                         for (const book of recommendations.slice(0, CONFIG.RECOMMENDATION_CONFIG.TARGET_BOOKS)) {
-                            if (!this.isDuplicate(book.workKey, 'recommendedBooks')) {
-                                if (book.score >= CONFIG.RECOMMENDATION_CONFIG.AUTO_APPROVE_SCORE_THRESHOLD) {
-                                    await storage.saveToFirestore(book, 'recommended_books');
-                                    // Send alert for high-scoring auto-approved book
-                                    await this.sendAlert('high_score_book_added', {
-                                        title: book.title,
-                                        author: book.author,
-                                        score: book.score
-                                    });
-                                    autoApprovedCount++;
-                                } else {
-                                    await storage.saveToFirestore(book, 'admin_pending_recs', appState.adminUserId);
-                                    pendingApprovalCount++;
-                                }
+                            // Check if book already exists in any collection
+                            if (!this.isExistingBook(book.workKey)) {
+                                await storage.saveToFirestore(book, 'admin_pending_recs', appState.adminUserId);
+                                pendingApprovalCount++;
                             }
                         }
 
-                        let messageText = '';
-                        if (autoApprovedCount > 0) messageText += `${autoApprovedCount} new high-scoring recommendations added! `;
-                        if (pendingApprovalCount > 0) messageText += `${pendingApprovalCount} recommendations await approval.`;
-                        if (!messageText) messageText = 'No new qualifying recommendations found. Try rating more books!';
-                        
-                        ui.showMessage(messageText, false, false);
+                        if (pendingApprovalCount > 0) {
+                            ui.showMessage(`✅ Generated ${pendingApprovalCount} new book recommendations! Check the admin panel to review and approve them for Beth.`, false, false);
+                        } else {
+                            ui.showMessage('No new qualifying recommendations found. All existing books have already been considered.', false, false);
+                        }
                     } else {
                         ui.showMessage('No new recommendations found meeting the quality threshold. Try rating more books or check back later!', false, false);
                     }
@@ -1661,9 +1648,6 @@
                         break;
                     case 'book_rating_updated':
                         message = `⭐ Beth rated "${data.title}" as "${data.rating}"`;
-                        break;
-                    case 'high_score_book_added':
-                        message = `🔥 High-scoring book auto-added: "${data.title}" by ${data.author} (Score: ${data.score}/100)`;
                         break;
                 }
 
@@ -3283,7 +3267,7 @@
 
                 <!-- Admin Pending Recommendations Container -->
                 <div id="admin-pending-recs-container" class="admin-pending-recs-container hidden">
-                    <h3 class="text-xl font-semibold text-gray-800 mb-4">Admin: Pending Recommendations</h3>
+                    <h3 class="text-xl font-semibold text-gray-800 mb-4">Admin: Pending Recommendations (All Generated Books)</h3>
                     <div id="admin-pending-recs-list">
                         <!-- Pending recommendations will be displayed here -->
                     </div>
