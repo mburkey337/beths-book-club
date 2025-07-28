@@ -28,7 +28,7 @@
             OPEN_LIBRARY_WORK_URL: 'https://openlibrary.org/works/',
             OPEN_LIBRARY_COVER_URL: 'https://covers.openlibrary.org/b/id/',
             RECOMMENDATION_CONFIG: {
-                TARGET_BOOKS: 6,
+                TARGET_BOOKS: 8,
                 MIN_SCORE_THRESHOLD: 65,
                 MAX_API_CALLS: 40,
                 API_DELAY_MS: 50
@@ -1284,37 +1284,74 @@
                 try {
                     await this.sendAlert('recommendations_generation_started');
 
-                    const candidates = await this.collectCandidates();
-                    
-                    if (candidates.length === 0) {
-                        if (loader) loader.style.display = 'none';
-                        ui.showMessage('No candidates found. This might be due to API issues or insufficient data. Try again later.', false, false);
-                        return;
-                    }
+                    const TARGET_BOOKS = 3; // Minimum viable books needed
+                    const MAX_ATTEMPTS = 5; // Maximum generation attempts to prevent infinite loops
+                    let totalBooksAdded = 0;
+                    let attempt = 1;
 
-                    const recommendations = await this.processRecommendations(candidates);
+                    while (totalBooksAdded < TARGET_BOOKS && attempt <= MAX_ATTEMPTS) {
+                        ui.showMessage(`Generating recommendations... Attempt ${attempt}/${MAX_ATTEMPTS}. Found ${totalBooksAdded} viable books so far.`, true, false);
+                        
+                        console.log(`Generation attempt ${attempt}: Need ${TARGET_BOOKS - totalBooksAdded} more books`);
 
-                    if (loader) loader.style.display = 'none';
+                        const candidates = await this.collectCandidates();
+                        
+                        if (candidates.length === 0) {
+                            console.warn(`Attempt ${attempt}: No candidates found`);
+                            attempt++;
+                            continue;
+                        }
 
-                    if (recommendations.length > 0) {
-                        let pendingApprovalCount = 0;
+                        const recommendations = await this.processRecommendations(candidates);
+                        
+                        if (recommendations.length === 0) {
+                            console.warn(`Attempt ${attempt}: No viable recommendations from ${candidates.length} candidates`);
+                            attempt++;
+                            continue;
+                        }
 
+                        // Add books to pending that don't already exist anywhere
+                        let booksAddedThisRound = 0;
                         for (const book of recommendations.slice(0, CONFIG.RECOMMENDATION_CONFIG.TARGET_BOOKS)) {
-                            // Check if book already exists in any collection
                             if (!this.isExistingBook(book.workKey)) {
                                 await storage.saveToFirestore(book, 'admin_pending_recs', appState.adminUserId);
-                                pendingApprovalCount++;
+                                booksAddedThisRound++;
+                                totalBooksAdded++;
+                                console.log(`Added: "${book.title}" by ${book.author} (Score: ${book.score})`);
+                                
+                                // Break if we've reached our target
+                                if (totalBooksAdded >= TARGET_BOOKS) {
+                                    break;
+                                }
                             }
                         }
 
-                        if (pendingApprovalCount > 0) {
-                            ui.showMessage(`✅ Generated ${pendingApprovalCount} new book recommendations! Check the admin panel to review and approve them for Beth.`, false, false);
-                        } else {
-                            ui.showMessage('No new qualifying recommendations found. All existing books have already been considered.', false, false);
+                        console.log(`Attempt ${attempt}: Added ${booksAddedThisRound} books (Total: ${totalBooksAdded})`);
+                        
+                        // If we didn't add any books this round, increment attempt
+                        if (booksAddedThisRound === 0) {
+                            console.warn(`Attempt ${attempt}: No new books added (all were duplicates)`);
                         }
-                    } else {
-                        ui.showMessage('No new recommendations found meeting the quality threshold. Try rating more books or check back later!', false, false);
+                        
+                        attempt++;
+                        
+                        // Add a small delay between attempts to be respectful to APIs
+                        if (totalBooksAdded < TARGET_BOOKS && attempt <= MAX_ATTEMPTS) {
+                            await utils.delay(1000);
+                        }
                     }
+
+                    if (loader) loader.style.display = 'none';
+
+                    // Provide feedback based on results
+                    if (totalBooksAdded >= TARGET_BOOKS) {
+                        ui.showMessage(`🎉 Success! Generated ${totalBooksAdded} viable book recommendations after ${attempt - 1} attempts. Check the admin panel to review and approve them for Beth.`, false, false);
+                    } else if (totalBooksAdded > 0) {
+                        ui.showMessage(`⚠️ Generated ${totalBooksAdded} recommendations (wanted ${TARGET_BOOKS}) after ${MAX_ATTEMPTS} attempts. This might indicate limited new options available. Check the admin panel to review what was found.`, false, false);
+                    } else {
+                        ui.showMessage(`❌ Could not find any new viable recommendations after ${MAX_ATTEMPTS} attempts. This might mean Beth needs to rate more books or all suitable books have already been considered.`, false, false);
+                    }
+
                 } catch (error) {
                     console.error('Recommendation generation failed:', error);
                     if (loader) loader.style.display = 'none';
@@ -1329,6 +1366,12 @@
                     () => this.getTrendingRecommendations(),
                     () => this.getGenreSpecificRecommendations()
                 ];
+
+                // Shuffle sources for variety on repeated calls
+                for (let i = sources.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [sources[i], sources[j]] = [sources[j], sources[i]];
+                }
 
                 const results = await Promise.allSettled(sources.map(fn => fn()));
                 
@@ -1353,6 +1396,12 @@
                         uniqueCandidates.push(candidate);
                         seen.add(candidate.workKey);
                     }
+                }
+
+                // Shuffle candidates for variety
+                for (let i = uniqueCandidates.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [uniqueCandidates[i], uniqueCandidates[j]] = [uniqueCandidates[j], uniqueCandidates[i]];
                 }
 
                 console.log(`Collected ${uniqueCandidates.length} unique valid candidates`);
@@ -1458,13 +1507,25 @@
                 const lovedBooks = appState.data.bookShelfBooks.filter(book => book.userRating === 'love');
                 const likedBooks = appState.data.bookShelfBooks.filter(book => book.userRating === 'like');
 
+                // Add some randomness to the prompt for variety on repeated calls
+                const emphasisPhrases = [
+                    'prioritize lesser-known gems',
+                    'include both popular and underrated titles',
+                    'focus on diverse authors within the genre',
+                    'emphasize recent publications',
+                    'include award-winning books',
+                    'prioritize highly-rated books'
+                ];
+                const randomEmphasis = emphasisPhrases[Math.floor(Math.random() * emphasisPhrases.length)];
+
                 let prompt = `You are a book recommendation engine for Beth, a reader who loves ${CONFIG.BETH_GENRE_KEYWORDS.join(', ')}.
 
                 CRUCIAL REQUIREMENTS:
                 - Recommend 8-12 books
                 - Focus on books published from 2000 to 2024
                 - Prioritize authors Beth has NOT read yet
-                - Include both established and emerging authors`;
+                - Include both established and emerging authors
+                - ${randomEmphasis}`;
 
                 if (lovedBooks.length > 0) {
                     prompt += `\n\nBeth has LOVED: ${lovedBooks.map(b => `"${b.title}" by ${b.author}`).join('; ')}.`;
@@ -1562,14 +1623,33 @@
                     'murder mystery contemporary',
                     'true crime narrative 2005..2024',
                     'domestic thriller 2010..2024',
-                    'crime fiction 2015..2024'
+                    'crime fiction 2015..2024',
+                    'suspense novel 2020..2024',
+                    'detective fiction modern',
+                    'thriller bestseller 2018..2024',
+                    'mystery novel award winning',
+                    'crime thriller new',
+                    'psychological suspense 2019..2024',
+                    'murder investigation fiction'
                 ];
 
+                // Shuffle search terms for variety on repeated calls
+                const shuffledTerms = [...searchTerms];
+                for (let i = shuffledTerms.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [shuffledTerms[i], shuffledTerms[j]] = [shuffledTerms[j], shuffledTerms[i]];
+                }
+
                 const candidates = [];
-                for (const term of searchTerms) {
+                // Use a random subset of terms each time to get variety
+                const termsToUse = shuffledTerms.slice(0, 6);
+                
+                for (const term of termsToUse) {
                     try {
                         const data = await api.searchOpenLibrary(term, 20);
                         candidates.push(...this.processSearchResults(data, 'Genre-Specific'));
+                        // Add small delay between searches
+                        await utils.delay(100);
                     } catch (error) {
                         console.warn(`Genre search failed for "${term}":`, error);
                     }
