@@ -1214,6 +1214,12 @@
                             if (!this.isDuplicate(book.workKey, 'recommendedBooks')) {
                                 if (book.score >= CONFIG.RECOMMENDATION_CONFIG.AUTO_APPROVE_SCORE_THRESHOLD) {
                                     await storage.saveToFirestore(book, 'recommended_books');
+                                    // Send alert for high-scoring auto-approved book
+                                    await this.sendAlert('high_score_book_added', {
+                                        title: book.title,
+                                        author: book.author,
+                                        score: book.score
+                                    });
                                     autoApprovedCount++;
                                 } else {
                                     await storage.saveToFirestore(book, 'admin_pending_recs', appState.adminUserId);
@@ -1538,17 +1544,35 @@
                 switch (type) {
                     case 'picked_book':
                         const book = appState.data.recommendedBooks.find(b => b.workKey === data);
-                        message = `Beth picked: "${book?.title || 'Unknown Book'}" (WorkKey: ${data})`;
+                        message = `📚 Beth picked: "${book?.title || 'Unknown Book'}" by ${book?.author || 'Unknown Author'}`;
                         break;
                     case 'request_more_recs':
-                        message = 'Beth is ready for more book recommendations!';
+                        message = '🔄 Beth is ready for more book recommendations!';
                         break;
                     case 'passed_book':
                         const passedBook = appState.data.recommendedBooks.find(b => b.workKey === data);
-                        message = `Beth passed on: "${passedBook?.title || 'Unknown Book'}" (WorkKey: ${data})`;
+                        message = `❌ Beth passed on: "${passedBook?.title || 'Unknown Book'}" by ${passedBook?.author || 'Unknown Author'}`;
                         break;
                     case 'recommendations_generation_started':
-                        message = 'Admin initiated new recommendation generation.';
+                        message = '⚙️ Admin initiated new recommendation generation.';
+                        break;
+                    case 'beth_login':
+                        message = '👋 Beth logged into her Book Club!';
+                        break;
+                    case 'book_moved_to_deleted':
+                        message = `🗑️ Beth moved "${data.title}" by ${data.author} to deleted books`;
+                        break;
+                    case 'book_saved_for_later':
+                        message = `💾 Beth saved "${data.title}" by ${data.author} for later reading`;
+                        break;
+                    case 'book_restored_from_deleted':
+                        message = `♻️ Beth restored "${data.title}" by ${data.author} from deleted books`;
+                        break;
+                    case 'book_rating_updated':
+                        message = `⭐ Beth rated "${data.title}" as "${data.rating}"`;
+                        break;
+                    case 'high_score_book_added':
+                        message = `🔥 High-scoring book auto-added: "${data.title}" by ${data.author} (Score: ${data.score}/100)`;
                         break;
                 }
 
@@ -1995,6 +2019,8 @@
                 if (enteredPin === CONFIG.BETH_PIN) {
                     if (loginMessage) loginMessage.textContent = '';
                     await this.initializeApp(false);
+                    // Send alert that Beth logged in
+                    await bookManager.sendAlert('beth_login');
                 } else if (enteredPin === CONFIG.ADMIN_PIN) {
                     if (loginMessage) loginMessage.textContent = '';
                     await this.initializeApp(true);
@@ -2151,6 +2177,13 @@
 
                 if (!book) return;
 
+                // Send alert that Beth updated a book rating
+                await bookManager.sendAlert('book_rating_updated', {
+                    title: book.title,
+                    author: book.author,
+                    rating: rating
+                });
+
                 book.userRating = rating;
 
                 if (['like', 'love', 'mid', 'picked'].includes(rating)) {
@@ -2170,6 +2203,12 @@
                 if (!book) return;
 
                 ui.showMessage(`Saving "${book.title}" for later...`, false, false);
+
+                // Send alert that Beth saved a book for later
+                await bookManager.sendAlert('book_saved_for_later', {
+                    title: book.title,
+                    author: book.author
+                });
 
                 // Add savedByUser flag and move to admin approved books
                 book.savedByUser = true;
@@ -2214,6 +2253,12 @@
                 const book = appState.data.bookShelfBooks.find(b => b.workKey === workKey);
                 if (!book) return;
 
+                // Send alert that Beth moved a book to deleted
+                await bookManager.sendAlert('book_moved_to_deleted', {
+                    title: book.title,
+                    author: book.author
+                });
+
                 await storage.deleteFromFirestore(workKey, 'bookshelf_books');
                 await storage.saveToFirestore(book, 'beth_deleted_books');
                 ui.showMessage(`"${book.title}" has been removed from your bookshelf and moved to deleted books.`, false, false);
@@ -2222,6 +2267,12 @@
             async handleRestoreFromDeleted(workKey) {
                 const book = appState.data.bethDeletedBooks.find(b => b.workKey === workKey);
                 if (!book) return;
+
+                // Send alert that Beth restored a book from deleted
+                await bookManager.sendAlert('book_restored_from_deleted', {
+                    title: book.title,
+                    author: book.author
+                });
 
                 await storage.deleteFromFirestore(workKey, 'beth_deleted_books');
                 book.userRating = 'picked';
@@ -2347,6 +2398,9 @@
             async handlePickAndMoveToBookshelf(workKey) {
                 const book = appState.data.adminApprovedBooks.find(b => b.workKey === workKey && b.savedByUser === true);
                 if (!book) return;
+
+                // Send alert that Beth picked a saved book
+                await bookManager.sendAlert('picked_book', workKey);
 
                 // Remove from admin approved books
                 await storage.deleteFromFirestore(workKey, 'admin_approved_books', appState.adminUserId);
@@ -2987,6 +3041,7 @@
             border-radius: 0.25rem;
             font-size: 0.9rem;
             color: #78350f; /* Darker amber text */
+            word-wrap: break-word; /* Handle long book titles */
         }
         .admin-alert-item:last-child {
             margin-bottom: 0;
