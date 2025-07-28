@@ -357,10 +357,10 @@
                 throw new Error(`Failed after ${maxRetries} attempts`);
             }
 
-            async fetchBookDetails(workKey) {
+            async fetchBookDetails(workKey, requireCover = true) {
                 if (!workKey) return null;
                 
-                const cacheKey = `book_${workKey}`;
+                const cacheKey = `book_${workKey}_${requireCover}`;
                 if (this.requestCache.has(cacheKey)) {
                     return this.requestCache.get(cacheKey);
                 }
@@ -368,11 +368,6 @@
                 try {
                     const response = await this.fetchWithRetry(`${CONFIG.OPEN_LIBRARY_WORK_URL}${workKey}.json`);
                     const data = await response.json();
-
-                    if (!data.covers || data.covers.length === 0) {
-                        console.log(`Skipping "${data.title}" - no cover available`);
-                        return null;
-                    }
 
                     const firstPublishYear = data.first_publish_year && typeof data.first_publish_year === 'number' ? data.first_publish_year : null;
                     if (firstPublishYear && firstPublishYear < CONFIG.MIN_PUBLISH_YEAR) {
@@ -415,6 +410,41 @@
 
                     const bookTitle = data.title || 'Unknown Title';
 
+                    // Smart cover image handling with fallback search
+                    let imageUrl = null;
+                    let coverSource = 'placeholder';
+
+                    // First, try Open Library covers
+                    if (data.covers && data.covers.length > 0) {
+                        imageUrl = `${CONFIG.OPEN_LIBRARY_COVER_URL}${data.covers[0]}-M.jpg`;
+                        coverSource = 'openlibrary';
+                        console.log(`Using Open Library cover for "${bookTitle}"`);
+                    } else {
+                        // If no Open Library cover, search Google Books
+                        console.log(`No Open Library cover for "${bookTitle}", searching Google Books...`);
+                        const googleCoverUrl = await this.fetchGoogleBooksCover(bookTitle, authorName);
+                        
+                        if (googleCoverUrl) {
+                            imageUrl = googleCoverUrl;
+                            coverSource = 'google';
+                            console.log(`Found Google Books cover for "${bookTitle}"`);
+                        } else {
+                            console.log(`No cover found anywhere for "${bookTitle}"`);
+                        }
+                    }
+
+                    // If still no cover and we require one for automated recommendations, skip the book
+                    if (requireCover && !imageUrl) {
+                        console.log(`Skipping "${bookTitle}" - no cover available from any source`);
+                        return null;
+                    }
+
+                    // Use placeholder if no cover found
+                    if (!imageUrl) {
+                        imageUrl = 'https://placehold.co/400x600/CCCCCC/666666?text=No+Cover+Available';
+                        coverSource = 'placeholder';
+                    }
+
                     // If still no good description, try Google Books API as fallback
                     if (!description || description.length < 50) {
                         console.log(`Trying Google Books for better description: "${bookTitle}" by ${authorName}`);
@@ -429,7 +459,8 @@
                         title: bookTitle,
                         author: authorName,
                         description: description || 'No description available.',
-                        imageUrl: `${CONFIG.OPEN_LIBRARY_COVER_URL}${data.covers[0]}-M.jpg`,
+                        imageUrl: imageUrl,
+                        coverSource: coverSource, // Track where we got the cover from
                         goodreadsUrl: `https://openlibrary.org${data.key}`,
                         rating: data.ratings_average && typeof data.ratings_average === 'number' ? data.ratings_average : null,
                         subjects: data.subjects || [],
@@ -442,6 +473,68 @@
                     return result;
                 } catch (error) {
                     console.error(`Error fetching details for ${workKey}:`, error);
+                    return null;
+                }
+            }
+
+            async fetchGoogleBooksCover(title, author) {
+                try {
+                    // Clean and format the search query
+                    const cleanTitle = title.replace(/[^\w\s]/g, '').trim();
+                    const cleanAuthor = author.replace(/[^\w\s]/g, '').trim();
+                    const query = `${cleanTitle} ${cleanAuthor}`.trim();
+                    
+                    if (query.length < 3) return null;
+
+                    const response = await this.fetchWithRetry(
+                        `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5`,
+                        {},
+                        2 // Fewer retries for fallback
+                    );
+
+                    const data = await response.json();
+                    
+                    if (!data.items || data.items.length === 0) {
+                        return null;
+                    }
+
+                    // Find the best match by checking title and author similarity
+                    for (const item of data.items) {
+                        const volumeInfo = item.volumeInfo;
+                        const googleTitle = volumeInfo.title?.toLowerCase() || '';
+                        const googleAuthors = volumeInfo.authors || [];
+                        
+                        // Check if this is likely the same book
+                        const titleMatch = googleTitle.includes(cleanTitle.toLowerCase()) || 
+                                         cleanTitle.toLowerCase().includes(googleTitle);
+                        const authorMatch = googleAuthors.some(gAuthor => 
+                            gAuthor.toLowerCase().includes(cleanAuthor.toLowerCase()) ||
+                            cleanAuthor.toLowerCase().includes(gAuthor.toLowerCase())
+                        );
+
+                        if (titleMatch || authorMatch) {
+                            // Check for cover images in order of preference
+                            const imageLinks = volumeInfo.imageLinks;
+                            if (imageLinks) {
+                                // Prefer higher resolution images
+                                if (imageLinks.large) {
+                                    return imageLinks.large.replace('http:', 'https:');
+                                } else if (imageLinks.medium) {
+                                    return imageLinks.medium.replace('http:', 'https:');
+                                } else if (imageLinks.small) {
+                                    return imageLinks.small.replace('http:', 'https:');
+                                } else if (imageLinks.thumbnail) {
+                                    return imageLinks.thumbnail.replace('http:', 'https:');
+                                } else if (imageLinks.smallThumbnail) {
+                                    return imageLinks.smallThumbnail.replace('http:', 'https:');
+                                }
+                            }
+                        }
+                    }
+
+                    return null;
+                } catch (error) {
+                    console.warn('Google Books cover fetch failed:', error);
                     return null;
                 }
             }
@@ -921,15 +1014,28 @@
                         break;
                 }
 
+                // Add cover source indicator for admin
+                let coverSourceHtml = '';
+                if (isAdminMode && book.coverSource) {
+                    const coverSourceLabels = {
+                        'openlibrary': '📖 OL Cover',
+                        'google': '🌐 Google Cover', 
+                        'placeholder': '🖼️ No Cover'
+                    };
+                    const label = coverSourceLabels[book.coverSource] || '❓ Unknown';
+                    coverSourceHtml = `<span class="cover-source-tag">${label}</span>`;
+                }
+
                 card.innerHTML = `
                     <a href="${utils.escapeJs(book.goodreadsUrl)}" target="_blank" rel="noopener noreferrer" class="book-link">
-                        <img src="${utils.escapeJs(book.imageUrl)}" alt="${utils.escapeJs(book.title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover';">
+                        <img src="${utils.escapeJs(book.imageUrl)}" alt="${utils.escapeJs(book.title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover+Available';">
                         <div class="p-6 flex flex-col flex-grow">
                             <h3 class="text-xl font-semibold text-gray-900 mb-2">${utils.escapeJs(book.title)}</h3>
                             <p class="text-gray-600 text-sm mb-2">by ${utils.escapeJs(book.author)}</p>
                             ${book.rating ? utils.getStarRatingHtml(book.rating) : ''}
                             <p class="text-gray-700 text-base book-description flex-grow">${utils.escapeJs(description)}</p>
                             ${statusHtml}
+                            ${coverSourceHtml}
                         </div>
                     </a>
                     <div class="p-6 pt-0 flex flex-col items-center">
@@ -1083,16 +1189,29 @@
                     card.className = 'book-card bg-white rounded-lg shadow-md overflow-hidden flex flex-col';
 
                     const sourceTag = book.source ? `<span class="source-tag">${book.source}</span>` : '';
+                    
+                    // Add cover source indicator for admin
+                    let coverSourceHtml = '';
+                    if (book.coverSource) {
+                        const coverSourceLabels = {
+                            'openlibrary': '📖 OL Cover',
+                            'google': '🌐 Google Cover', 
+                            'placeholder': '🖼️ No Cover'
+                        };
+                        const label = coverSourceLabels[book.coverSource] || '❓ Unknown';
+                        coverSourceHtml = `<span class="cover-source-tag">${label}</span>`;
+                    }
 
                     card.innerHTML = `
                         <a href="${utils.escapeJs(book.goodreadsUrl)}" target="_blank" rel="noopener noreferrer" class="book-link">
-                            <img src="${utils.escapeJs(book.imageUrl)}" alt="${utils.escapeJs(book.title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover';">
+                            <img src="${utils.escapeJs(book.imageUrl)}" alt="${utils.escapeJs(book.title)} cover" class="book-image" onerror="this.onerror=null;this.src='https://placehold.co/400x600/CCCCCC/666666?text=No+Cover+Available';">
                             <div class="p-6 flex flex-col flex-grow">
                                 <h3 class="text-xl font-semibold text-gray-900 mb-2">${utils.escapeJs(book.title)}</h3>
                                 <p class="text-gray-600 text-sm mb-2">by ${utils.escapeJs(book.author)}</p>
                                 <p class="text-gray-600 text-xs mb-4">First Published: ${utils.escapeJs(book.first_publish_year || 'N/A')}</p>
                                 <p class="text-gray-700 text-base book-description flex-grow">${utils.escapeJs(book.description || 'No description available.')}</p>
                                 ${sourceTag}
+                                ${coverSourceHtml}
                             </div>
                         </a>
                         <div class="p-6 pt-0">
@@ -1434,7 +1553,7 @@
                             await utils.delay(CONFIG.RECOMMENDATION_CONFIG.API_DELAY_MS);
                         }
 
-                        const bookDetails = await api.fetchBookDetails(candidate.workKey);
+                        const bookDetails = await api.fetchBookDetails(candidate.workKey); // Keep default requireCover = true for automated recommendations
                         apiCallCount++;
 
                         if (bookDetails && !this.isExistingBook(bookDetails.workKey)) {
@@ -1450,7 +1569,8 @@
                                         score,
                                         pros: evaluation.pros,
                                         cons: evaluation.cons,
-                                        summary: evaluation.summary
+                                        summary: evaluation.summary,
+                                        coverSource: bookDetails.coverSource || 'placeholder'
                                     });
 
                                     selectedAuthors.add(bookDetails.author.toLowerCase());
@@ -1676,6 +1796,7 @@
                             author: doc.author_name ? doc.author_name.join(', ') : (doc.author || 'Unknown Author'),
                             description: doc.first_sentence?.[0] || '',
                             imageUrl: `${CONFIG.OPEN_LIBRARY_COVER_URL}${doc.cover_i}-M.jpg`,
+                            coverSource: 'openlibrary', // These come from Open Library search
                             goodreadsUrl: `https://openlibrary.org${doc.key}`,
                             rating: doc.ratings_average && typeof doc.ratings_average === 'number' ? doc.ratings_average : null,
                             subjects: doc.subject || [],
@@ -1917,13 +2038,14 @@
 
                     if (!isAlreadyOnShelf) {
                         try {
-                            const bookDetails = await api.fetchBookDetails(workKey);
+                            const bookDetails = await api.fetchBookDetails(workKey, false); // Allow books without covers for seeding
                             if (bookDetails) {
                                 const bookToSave = {
                                     title: bookDetails.title || 'Unknown Title',
                                     author: bookDetails.author || 'Unknown Author',
                                     description: bookDetails.description || '',
-                                    imageUrl: bookDetails.imageUrl || '',
+                                    imageUrl: bookDetails.imageUrl || 'https://placehold.co/400x600/CCCCCC/666666?text=No+Cover',
+                                    coverSource: bookDetails.coverSource || 'placeholder',
                                     goodreadsUrl: bookDetails.goodreadsUrl || '',
                                     rating: bookDetails.rating && typeof bookDetails.rating === 'number' ? bookDetails.rating : null,
                                     subjects: bookDetails.subjects || [],
@@ -2456,7 +2578,8 @@
                         title: book.title || 'Unknown Title',
                         author: book.author || 'Unknown Author',
                         description: book.description || '',
-                        imageUrl: book.imageUrl || '',
+                        imageUrl: book.imageUrl || 'https://placehold.co/400x600/CCCCCC/666666?text=No+Cover',
+                        coverSource: book.coverSource || 'placeholder',
                         goodreadsUrl: book.goodreadsUrl || '',
                         rating: book.rating && typeof book.rating === 'number' ? book.rating : null,
                         subjects: book.subjects || [],
@@ -2602,7 +2725,7 @@
                         if (!workKeyMatch) continue;
 
                         try {
-                            const bookDetails = await api.fetchBookDetails(workKeyMatch[1]);
+                            const bookDetails = await api.fetchBookDetails(workKeyMatch[1], false); // Don't require cover for search results
                             if (bookDetails) {
                                 processedResults.push(bookDetails);
                             }
@@ -2643,17 +2766,19 @@
 
                 try {
                     const workKey = await this.extractWorkKey(url);
-                    const bookDetails = await api.fetchBookDetails(workKey);
+                    // Allow books without covers for manual admin adds
+                    const bookDetails = await api.fetchBookDetails(workKey, false);
 
                     if (!bookDetails) {
-                        throw new Error('Failed to retrieve book details');
+                        throw new Error('Failed to retrieve book details - book may not exist or URL is invalid');
                     }
 
                     const newBook = {
                         title: bookDetails.title || 'Unknown Title',
                         author: bookDetails.author || 'Unknown Author', 
                         description: bookDetails.description || '',
-                        imageUrl: bookDetails.imageUrl || '',
+                        imageUrl: bookDetails.imageUrl || 'https://placehold.co/400x600/CCCCCC/666666?text=No+Cover',
+                        coverSource: bookDetails.coverSource || 'placeholder',
                         goodreadsUrl: bookDetails.goodreadsUrl || '',
                         rating: bookDetails.rating && typeof bookDetails.rating === 'number' ? bookDetails.rating : null,
                         subjects: bookDetails.subjects || [],
@@ -2674,7 +2799,17 @@
                     }
                 } catch (error) {
                     console.error('Manual add failed:', error);
-                    ui.showMessage(`An error occurred: ${error.message}. Please try again.`, false, false);
+                    let errorMessage = 'An error occurred while adding the book.';
+                    
+                    if (error.message.includes('Invalid Open Library URL')) {
+                        errorMessage = 'Invalid URL format. Please use a valid Open Library URL (works or books).';
+                    } else if (error.message.includes('Failed to retrieve book details')) {
+                        errorMessage = 'Could not find this book. Please check the URL and try again.';
+                    } else if (error.message.includes('too old')) {
+                        errorMessage = 'This book is too old (before 2000). Only newer books are allowed.';
+                    }
+                    
+                    ui.showMessage(errorMessage, false, false);
                 } finally {
                     if (loader) loader.style.display = 'none';
                 }
@@ -2695,10 +2830,11 @@
 
                 try {
                     const workKey = await this.extractWorkKey(url);
-                    const bookDetails = await api.fetchBookDetails(workKey);
+                    // Allow books without covers for manual admin evaluation
+                    const bookDetails = await api.fetchBookDetails(workKey, false);
 
                     if (!bookDetails) {
-                        throw new Error('Failed to retrieve book details');
+                        throw new Error('Failed to retrieve book details - book may not exist or URL is invalid');
                     }
 
                     const { title, author } = bookDetails;
@@ -2735,7 +2871,8 @@
                                 title: bookDetails.title || 'Unknown Title',
                                 author: bookDetails.author || 'Unknown Author',
                                 description: bookDetails.description || '',
-                                imageUrl: bookDetails.imageUrl || '',
+                                imageUrl: bookDetails.imageUrl || 'https://placehold.co/400x600/CCCCCC/666666?text=No+Cover',
+                                coverSource: bookDetails.coverSource || 'placeholder',
                                 goodreadsUrl: bookDetails.goodreadsUrl || '',
                                 rating: bookDetails.rating && typeof bookDetails.rating === 'number' ? bookDetails.rating : null,
                                 subjects: bookDetails.subjects || [],
@@ -2759,7 +2896,19 @@
                     }
                 } catch (error) {
                     console.error('Book evaluation failed:', error);
-                    ui.showMessage(`Failed to evaluate book: ${error.message}. Please try again.`, false, false);
+                    let errorMessage = 'Failed to evaluate book.';
+                    
+                    if (error.message.includes('Invalid Open Library URL')) {
+                        errorMessage = 'Invalid URL format. Please use a valid Open Library URL (works or books).';
+                    } else if (error.message.includes('Failed to retrieve book details')) {
+                        errorMessage = 'Could not find this book. Please check the URL and try again.';
+                    } else if (error.message.includes('too old')) {
+                        errorMessage = 'This book is too old (before 2000). Only newer books are allowed.';
+                    } else if (error.message.includes('AI evaluation failed')) {
+                        errorMessage = 'Book found but AI evaluation failed. The book may still be valid.';
+                    }
+                    
+                    ui.showMessage(errorMessage, false, false);
                 } finally {
                     if (loader) loader.style.display = 'none';
                 }
@@ -3175,6 +3324,19 @@
             font-size: 0.75rem;
             font-weight: 500;
             margin-top: 0.5rem;
+        }
+
+        /* Cover source tag styling */
+        .cover-source-tag {
+            display: inline-block;
+            background-color: #f3f4f6; /* Light gray */
+            color: #374151; /* Dark gray text */
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.7rem;
+            font-weight: 500;
+            margin-top: 0.5rem;
+            opacity: 0.8;
         }
 
         /* Admin Alert specific styling */
