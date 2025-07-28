@@ -1147,9 +1147,10 @@
                 const lovedBooks = appState.data.bookShelfBooks.filter(b => b.userRating === 'love').map(b => b.title);
                 const likedBooks = appState.data.bookShelfBooks.filter(b => b.userRating === 'like').map(b => b.title);
 
-                let prompt = `You are an AI assistant helping Beth understand why a specific book is recommended for her.
-                Speak directly to Beth.
-                Your favorite genres are: ${favoriteGenres}.`;
+                let prompt = `You are an AI assistant explaining to Beth why a specific book is recommended for her.
+                Speak directly to Beth using "you" and "your".
+                
+                Beth's favorite genres are: ${favoriteGenres}.`;
                 
                 if (lovedBooks.length > 0) {
                     prompt += `\nYou have "loved" the following books: ${lovedBooks.join(', ')}.`;
@@ -1165,15 +1166,23 @@
                 if (description) prompt += `\nDescription: ${description}`;
                 if (subjects?.length) prompt += `\nSubjects/Themes: ${subjects.join(', ')}`;
                 
-                prompt += `\nExplain in a friendly, concise, and compelling way why this book is a good recommendation for you, connecting it to your stated preferences and past liked/loved books. Focus on aspects like genre, themes, author style (if applicable), and overall appeal for someone with your tastes. Keep it to 2-3 sentences. Your response MUST ONLY be the explanation itself, starting directly with the reason, and contain no introductory phrases, conversational filler, or repetition of the book title/your role.`;
+                prompt += `\nExplain in a friendly, concise, and compelling way why this book is a good recommendation for Beth, speaking directly to her using "you" and "your". Connect it to her stated preferences and past liked/loved books. Focus on aspects like genre, themes, author style (if applicable), and overall appeal for someone with her tastes. Keep it to 2-3 sentences. Your response should start directly with the explanation and contain no introductory phrases, conversational filler, or repetition of the book title.`;
 
                 try {
                     const response = await api.callGeminiAPI(prompt);
-                    // Clean up response
+                    // Clean up response to remove any remaining impersonal language
                     return response
                         .replace(/^(Sure, here's why this book is a good recommendation for Beth:|Here's why this book is a good recommendation for Beth:|This book is a good recommendation for Beth because|This book is recommended for Beth because|Here's why this book is recommended for Beth:)\s*/i, '')
                         .replace(new RegExp(`^\\*\\*Why "${title}" for Beth\\?\\*\\*\\n\\n`, 'i'), '')
-                        .replace(/^(This book is recommended for you because|You might enjoy this book because|This book aligns with your preferences because|This book is a great fit for you because)\s*/i, '');
+                        .replace(/^(This book is recommended for you because|You might enjoy this book because|This book aligns with your preferences because|This book is a great fit for you because)\s*/i, '')
+                        .replace(/\b(we|us|our)\b/gi, (match) => {
+                            switch(match.toLowerCase()) {
+                                case 'we': return 'you';
+                                case 'us': return 'you';
+                                case 'our': return 'your';
+                                default: return match;
+                            }
+                        });
                 } catch (error) {
                     console.error('Insight generation failed:', error);
                     throw error;
