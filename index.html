@@ -430,7 +430,7 @@
                         hasCover = true;
                         console.log(`Using Open Library cover for "${bookTitle}"`);
                     } else {
-                        // Search for covers using multiple methods
+                        // Search for covers using multiple methods with strict matching
                         console.log(`No Open Library cover found for "${bookTitle}", searching for alternatives...`);
                         imageUrl = await this.searchForBookCover(bookTitle, authorName, data);
                         
@@ -438,7 +438,7 @@
                             hasCover = true;
                             console.log(`Found alternative cover for "${bookTitle}"`);
                         } else {
-                            console.log(`No cover found anywhere for "${bookTitle}"`);
+                            console.log(`No high-confidence cover match found for "${bookTitle}"`);
                         }
                     }
 
@@ -477,11 +477,19 @@
             }
 
             async searchForBookCover(title, author, bookData) {
+                // IMPORTANT: Use strict matching to prevent wrong covers from being assigned
+                // We'd rather show a placeholder than the wrong book's cover
                 const searches = [
                     { name: 'Open Library Identifiers', method: () => this.searchOpenLibraryCoversByIdentifiers(bookData) },
                     { name: 'Google Books', method: () => this.searchGoogleBooksCover(title, author) },
                     { name: 'Open Library Title Search', method: () => this.searchOpenLibraryCoversByTitle(title, author) }
                 ];
+
+                // Shuffle sources for variety on repeated calls
+                for (let i = searches.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [searches[i], searches[j]] = [searches[j], searches[i]];
+                }
 
                 for (const search of searches) {
                     try {
@@ -496,7 +504,7 @@
                     }
                 }
 
-                console.log(`❌ No cover found anywhere for "${title}"`);
+                console.log(`❌ No high-confidence cover match found for "${title}" by ${author} - better to show placeholder than wrong cover`);
                 return null;
             }
 
@@ -559,21 +567,30 @@
                         return null;
                     }
 
-                    // Find the best match and get its cover
+                    // Find the best match and get its cover with strict matching
                     for (const item of data.items) {
                         const volumeInfo = item.volumeInfo;
                         const googleTitle = volumeInfo.title?.toLowerCase() || '';
                         const googleAuthors = volumeInfo.authors || [];
                         
-                        // Check if this is likely the same book
-                        const titleMatch = googleTitle.includes(cleanTitle.toLowerCase()) || 
-                                         cleanTitle.toLowerCase().includes(googleTitle);
+                        // More precise title matching - check for substantial overlap
+                        const cleanGoogleTitle = googleTitle.replace(/[^\w\s]/g, '').trim().toLowerCase();
+                        const cleanSearchTitle = cleanTitle.replace(/[^\w\s]/g, '').trim().toLowerCase();
+                        
+                        // Calculate title similarity (simple word overlap method)
+                        const googleWords = new Set(cleanGoogleTitle.split(/\s+/).filter(w => w.length > 2));
+                        const searchWords = new Set(cleanSearchTitle.split(/\s+/).filter(w => w.length > 2));
+                        const intersection = new Set([...googleWords].filter(w => searchWords.has(w)));
+                        const titleSimilarity = intersection.size / Math.max(googleWords.size, searchWords.size);
+                        
                         const authorMatch = googleAuthors.some(gAuthor => 
                             gAuthor.toLowerCase().includes(cleanAuthor.toLowerCase()) ||
                             cleanAuthor.toLowerCase().includes(gAuthor.toLowerCase())
                         );
 
-                        if ((titleMatch || authorMatch) && volumeInfo.imageLinks) {
+                        // Require both good title similarity (at least 50% word overlap) AND author match
+                        if (titleSimilarity >= 0.5 && authorMatch && volumeInfo.imageLinks) {
+                            console.log(`Google Books cover match: "${title}" - Title similarity: ${(titleSimilarity * 100).toFixed(0)}%`);
                             // Prefer higher resolution images
                             const imageLinks = volumeInfo.imageLinks;
                             if (imageLinks.medium) {
@@ -610,18 +627,39 @@
                     
                     if (!searchData.docs) return null;
 
-                    // Look through search results for any with covers
+                    // Look through search results for any with covers, but be more strict about matching
                     for (const doc of searchData.docs) {
                         if (doc.cover_i) {
-                            const testUrl = `${CONFIG.OPEN_LIBRARY_COVER_URL}${doc.cover_i}-M.jpg`;
-                            try {
-                                const response = await this.fetchWithRetry(testUrl, { method: 'HEAD' }, 1);
-                                if (response.ok) {
-                                    console.log(`Found cover via title search for "${title}"`);
-                                    return testUrl;
+                            // More strict matching - check both title and author similarity with word overlap
+                            const docTitle = (doc.title || '').toLowerCase();
+                            const docAuthors = doc.author_name || [];
+                            
+                            // Calculate title similarity using word overlap
+                            const cleanDocTitle = docTitle.replace(/[^\w\s]/g, '').trim();
+                            const cleanSearchTitle = title.toLowerCase().replace(/[^\w\s]/g, '').trim();
+                            
+                            const docWords = new Set(cleanDocTitle.split(/\s+/).filter(w => w.length > 2));
+                            const searchWords = new Set(cleanSearchTitle.split(/\s+/).filter(w => w.length > 2));
+                            const intersection = new Set([...docWords].filter(w => searchWords.has(w)));
+                            const titleSimilarity = intersection.size / Math.max(docWords.size, searchWords.size);
+                            
+                            const authorMatch = docAuthors.some(docAuthor => 
+                                docAuthor.toLowerCase().includes(author.toLowerCase()) ||
+                                author.toLowerCase().includes(docAuthor.toLowerCase())
+                            );
+                            
+                            // Require good title similarity (at least 60% word overlap) AND author match
+                            if (titleSimilarity >= 0.6 && authorMatch) {
+                                const testUrl = `${CONFIG.OPEN_LIBRARY_COVER_URL}${doc.cover_i}-M.jpg`;
+                                try {
+                                    const response = await this.fetchWithRetry(testUrl, { method: 'HEAD' }, 1);
+                                    if (response.ok) {
+                                        console.log(`Found cover via title search for "${title}" - Title similarity: ${(titleSimilarity * 100).toFixed(0)}%, verified both title and author match`);
+                                        return testUrl;
+                                    }
+                                } catch (error) {
+                                    continue;
                                 }
-                            } catch (error) {
-                                continue;
                             }
                         }
                     }
