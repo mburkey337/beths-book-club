@@ -381,11 +381,24 @@
                         return null;
                     }
 
+                    // Enhanced description extraction from Open Library
                     let description = '';
                     if (data.description) {
-                        description = typeof data.description === 'object' && data.description.value 
-                            ? data.description.value 
-                            : (typeof data.description === 'string' ? data.description : '');
+                        if (typeof data.description === 'object' && data.description.value) {
+                            description = data.description.value;
+                        } else if (typeof data.description === 'string') {
+                            description = data.description;
+                        }
+                    }
+
+                    // Check for excerpts if no description
+                    if (!description && data.excerpts?.length > 0) {
+                        description = data.excerpts[0].excerpt || '';
+                    }
+
+                    // Check for first_sentence if still no description
+                    if (!description && data.first_sentence?.length > 0) {
+                        description = data.first_sentence.join(' ');
                     }
 
                     let authorName = 'Unknown Author';
@@ -401,10 +414,22 @@
                         authorName = data.by_statement;
                     }
 
+                    const bookTitle = data.title || 'Unknown Title';
+
+                    // If still no good description, try Google Books API as fallback
+                    if (!description || description.length < 50) {
+                        console.log(`Trying Google Books for better description: "${bookTitle}" by ${authorName}`);
+                        const googleDescription = await this.fetchGoogleBooksDescription(bookTitle, authorName);
+                        if (googleDescription && googleDescription.length > description.length) {
+                            description = googleDescription;
+                            console.log(`Enhanced description found via Google Books`);
+                        }
+                    }
+
                     const result = {
-                        title: data.title || 'Unknown Title',
+                        title: bookTitle,
                         author: authorName,
-                        description: description || '',
+                        description: description || 'No description available.',
                         imageUrl: `${CONFIG.OPEN_LIBRARY_COVER_URL}${data.covers[0]}-M.jpg`,
                         goodreadsUrl: `https://openlibrary.org${data.key}`,
                         rating: data.ratings_average && typeof data.ratings_average === 'number' ? data.ratings_average : null,
@@ -418,6 +443,63 @@
                     return result;
                 } catch (error) {
                     console.error(`Error fetching details for ${workKey}:`, error);
+                    return null;
+                }
+            }
+
+            async fetchGoogleBooksDescription(title, author) {
+                try {
+                    // Clean and format the search query
+                    const cleanTitle = title.replace(/[^\w\s]/g, '').trim();
+                    const cleanAuthor = author.replace(/[^\w\s]/g, '').trim();
+                    const query = `${cleanTitle} ${cleanAuthor}`.trim();
+                    
+                    if (query.length < 3) return null;
+
+                    const response = await this.fetchWithRetry(
+                        `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=3`,
+                        {},
+                        2 // Fewer retries for fallback
+                    );
+
+                    const data = await response.json();
+                    
+                    if (!data.items || data.items.length === 0) {
+                        return null;
+                    }
+
+                    // Find the best match by checking title similarity
+                    for (const item of data.items) {
+                        const volumeInfo = item.volumeInfo;
+                        const googleTitle = volumeInfo.title?.toLowerCase() || '';
+                        const googleAuthors = volumeInfo.authors || [];
+                        
+                        // Check if this is likely the same book
+                        const titleMatch = googleTitle.includes(cleanTitle.toLowerCase()) || 
+                                         cleanTitle.toLowerCase().includes(googleTitle);
+                        const authorMatch = googleAuthors.some(gAuthor => 
+                            gAuthor.toLowerCase().includes(cleanAuthor.toLowerCase()) ||
+                            cleanAuthor.toLowerCase().includes(gAuthor.toLowerCase())
+                        );
+
+                        if ((titleMatch || authorMatch) && volumeInfo.description) {
+                            let description = volumeInfo.description;
+                            
+                            // Clean up HTML tags if present
+                            description = description.replace(/<[^>]*>/g, '');
+                            
+                            // Limit length to reasonable size
+                            if (description.length > 1000) {
+                                description = description.substring(0, 1000) + '...';
+                            }
+                            
+                            return description;
+                        }
+                    }
+
+                    return null;
+                } catch (error) {
+                    console.warn('Google Books description fetch failed:', error);
                     return null;
                 }
             }
